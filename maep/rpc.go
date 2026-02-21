@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/google/uuid"
@@ -65,8 +66,8 @@ type rpcDataPushResult struct {
 
 func parseRPCRequest(raw []byte) (rpcRequest, error) {
 	var obj map[string]any
-	if err := decodeStrictJSON(raw, &obj); err != nil {
-		return rpcRequest{}, err
+	if err := decodeRPCJSON(raw, &obj); err != nil {
+		return rpcRequest{}, WrapProtocolError(ErrInvalidParams, "invalid rpc request json: %v", err)
 	}
 
 	jsonrpcValue, ok := obj["jsonrpc"]
@@ -127,7 +128,7 @@ func decodeRPCParams(raw json.RawMessage, out any) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return WrapProtocolError(ErrInvalidParams, "params is required")
 	}
-	if err := decodeStrictJSON(raw, out); err != nil {
+	if err := decodeRPCJSON(raw, out); err != nil {
 		return WrapProtocolError(ErrInvalidParams, "params decode failed: %v", err)
 	}
 	return nil
@@ -164,7 +165,7 @@ func makeRPCError(id any, symbol string, details string) ([]byte, error) {
 
 func parseRPCResponse(raw []byte) (json.RawMessage, string, string, error) {
 	var obj map[string]any
-	if err := decodeStrictJSON(raw, &obj); err != nil {
+	if err := decodeRPCJSON(raw, &obj); err != nil {
 		return nil, "", "", err
 	}
 
@@ -234,4 +235,23 @@ func extractRPCIDForError(raw []byte) (any, bool) {
 		return nil, false
 	}
 	return idValue, true
+}
+
+func decodeRPCJSON(raw []byte, out any) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return fmt.Errorf("empty json payload")
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("trailing json input is not allowed")
+		}
+		return fmt.Errorf("trailing json input is not allowed: %v", err)
+	}
+	return nil
 }

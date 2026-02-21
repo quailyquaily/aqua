@@ -159,7 +159,7 @@ func (n *Node) Ping(ctx context.Context, peerID string, addresses []string) (map
 		return nil, err
 	}
 	var out map[string]any
-	if err := decodeStrictJSON(resultRaw, &out); err != nil {
+	if err := decodeRPCJSON(resultRaw, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -171,7 +171,7 @@ func (n *Node) GetCapabilities(ctx context.Context, peerID string, addresses []s
 		return nil, err
 	}
 	var out map[string]any
-	if err := decodeStrictJSON(resultRaw, &out); err != nil {
+	if err := decodeRPCJSON(resultRaw, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -214,7 +214,7 @@ func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, 
 	}
 	result := DataPushResult{Accepted: true, Deduped: false}
 	if !notification {
-		if err := decodeStrictJSON(resultRaw, &result); err != nil {
+		if err := decodeRPCJSON(resultRaw, &result); err != nil {
 			return DataPushResult{}, err
 		}
 	}
@@ -832,7 +832,7 @@ func (n *Node) recordSession(result HelloResult) error {
 
 func parseHelloMessage(raw []byte) (helloMessage, error) {
 	var msg helloMessage
-	if err := decodeStrictJSON(raw, &msg); err != nil {
+	if err := decodeRPCJSON(raw, &msg); err != nil {
 		return helloMessage{}, err
 	}
 	msg.Type = strings.TrimSpace(msg.Type)

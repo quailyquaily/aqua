@@ -52,6 +52,31 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(bytes): %d\n", len(event.PayloadBytes))
 }
 
+func printRelayEvent(cmd *cobra.Command, event aqua.RelayEvent, outputJSON bool) {
+	if outputJSON {
+		_ = writeJSON(cmd.OutOrStdout(), map[string]any{
+			"event":          event.Event,
+			"path":           event.Path,
+			"relay_peer_id":  event.RelayPeerID,
+			"target_peer_id": event.TargetPeerID,
+			"reason":         event.Reason,
+			"timestamp":      event.Timestamp,
+		})
+		return
+	}
+
+	_, _ = fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"relay_event: event=%s path=%s relay_peer_id=%s target_peer_id=%s reason=%s at=%s\n",
+		event.Event,
+		event.Path,
+		event.RelayPeerID,
+		event.TargetPeerID,
+		event.Reason,
+		event.Timestamp.UTC().Format(time.RFC3339),
+	)
+}
+
 func summarizePayload(contentType string, payloadBase64 string) string {
 	data, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(payloadBase64))
 	if err != nil {

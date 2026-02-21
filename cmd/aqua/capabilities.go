@@ -8,13 +8,14 @@ import (
 
 func newCapabilitiesCmd() *cobra.Command {
 	var addresses []string
+	var relayMode string
 	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "capabilities <peer_id>",
 		Short: "Fetch remote capabilities via agent.capabilities.get",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			node, err := newDialNode(cmd)
+			node, err := newDialNodeWithRelayMode(cmd, relayMode)
 			if err != nil {
 				return err
 			}
@@ -33,6 +34,7 @@ func newCapabilitiesCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&addresses, "address", nil, "Override dial address (repeatable)")
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }

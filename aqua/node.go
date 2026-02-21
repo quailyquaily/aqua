@@ -28,6 +28,7 @@ const sessionFreshWindow = 10 * time.Minute
 type NodeOptions struct {
 	DialOnly           bool
 	ListenAddrs        []string
+	RelayMode          string
 	DialAddrTimeout    time.Duration
 	HelloTimeout       time.Duration
 	RPCTimeout         time.Duration
@@ -38,6 +39,7 @@ type NodeOptions struct {
 	DedupeMaxEntries   int
 	Logger             *slog.Logger
 	OnDataPush         func(event DataPushEvent)
+	OnRelayEvent       func(event RelayEvent)
 }
 
 type HelloResult struct {
@@ -91,7 +93,10 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 	}
 	explicitListenProvided := len(normalizeAddresses(opts.ListenAddrs)) > 0
 
-	options := normalizeNodeOptions(opts)
+	options, err := normalizeNodeOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 
 	h, err := newLibp2pHost(priv, options.DialOnly, options.ListenAddrs)
 	if err != nil {
@@ -918,19 +923,44 @@ func resolveExplicitDialTarget(peerID string, addresses []string) (peer.ID, []st
 
 func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []string) error {
 	directAddrs, relayAddrs := splitDialAddresses(addresses)
-	orderedSets := [][]string{directAddrs, relayAddrs}
-	setLabels := []string{"direct", "relay"}
+	orderedSets := dialAddressSetsForMode(n.opts.RelayMode, directAddrs, relayAddrs)
+	if len(orderedSets) == 0 {
+		return fmt.Errorf("connect to %s failed: no dial addresses for relay_mode=%s", targetPeerID.String(), n.opts.RelayMode)
+	}
 
 	connectErrors := make([]string, 0, len(addresses))
-	for i, addressSet := range orderedSets {
-		for _, raw := range addressSet {
+	directErrors := make([]string, 0, len(directAddrs))
+	for i, set := range orderedSets {
+		for _, raw := range set.Addresses {
 			addressCtx, cancel := withTimeoutIfNeeded(ctx, n.opts.DialAddrTimeout)
 			err := n.connectOneAddress(addressCtx, targetPeerID, raw)
 			cancel()
 			if err == nil {
+				event := RelayEvent{
+					Event:        "relay.path.selected",
+					Path:         set.Path,
+					TargetPeerID: targetPeerID.String(),
+					Timestamp:    time.Now().UTC(),
+				}
+				if set.Path == "relay" {
+					event.RelayPeerID = relayPeerIDFromCircuitAddress(raw)
+				}
+				n.emitRelayEvent(event)
 				return nil
 			}
-			connectErrors = append(connectErrors, fmt.Sprintf("%s(%s): %v", setLabels[i], raw, err))
+			connectErrors = append(connectErrors, fmt.Sprintf("%s(%s): %v", set.Path, raw, err))
+			if set.Path == "direct" {
+				directErrors = append(directErrors, fmt.Sprintf("%s: %v", raw, err))
+			}
+		}
+		if i == 0 && set.Path == "direct" && len(set.Addresses) > 0 && hasRelayAddressSet(orderedSets[1:]) {
+			n.emitRelayEvent(RelayEvent{
+				Event:        "relay.fallback",
+				Path:         "relay",
+				TargetPeerID: targetPeerID.String(),
+				Reason:       strings.Join(directErrors, "; "),
+				Timestamp:    time.Now().UTC(),
+			})
 		}
 	}
 	if len(connectErrors) == 0 {
@@ -965,6 +995,88 @@ func splitDialAddresses(addresses []string) ([]string, []string) {
 		}
 	}
 	return direct, relay
+}
+
+type dialAddressSet struct {
+	Path      string
+	Addresses []string
+}
+
+func dialAddressSetsForMode(mode string, direct []string, relay []string) []dialAddressSet {
+	switch strings.TrimSpace(mode) {
+	case RelayModeOff:
+		if len(direct) == 0 {
+			return nil
+		}
+		return []dialAddressSet{{Path: "direct", Addresses: direct}}
+	case RelayModeRequired:
+		if len(relay) == 0 {
+			return nil
+		}
+		return []dialAddressSet{{Path: "relay", Addresses: relay}}
+	default:
+		sets := make([]dialAddressSet, 0, 2)
+		if len(direct) > 0 {
+			sets = append(sets, dialAddressSet{Path: "direct", Addresses: direct})
+		}
+		if len(relay) > 0 {
+			sets = append(sets, dialAddressSet{Path: "relay", Addresses: relay})
+		}
+		return sets
+	}
+}
+
+func hasRelayAddressSet(sets []dialAddressSet) bool {
+	for _, set := range sets {
+		if set.Path == "relay" && len(set.Addresses) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func relayPeerIDFromCircuitAddress(address string) string {
+	maddr, err := ma.NewMultiaddr(strings.TrimSpace(address))
+	if err != nil {
+		return ""
+	}
+	relayPeerID := ""
+	sawCircuit := false
+	for _, component := range ma.Split(maddr) {
+		switch component.Protocol().Code {
+		case ma.P_CIRCUIT:
+			sawCircuit = true
+		case ma.P_P2P:
+			if !sawCircuit {
+				relayPeerID = strings.TrimSpace(component.Value())
+			}
+		}
+		if sawCircuit {
+			break
+		}
+	}
+	if !sawCircuit {
+		return ""
+	}
+	return relayPeerID
+}
+
+func (n *Node) emitRelayEvent(event RelayEvent) {
+	if n == nil || n.opts.OnRelayEvent == nil {
+		return
+	}
+	event.Event = strings.TrimSpace(event.Event)
+	event.Path = strings.TrimSpace(event.Path)
+	event.RelayPeerID = strings.TrimSpace(event.RelayPeerID)
+	event.TargetPeerID = strings.TrimSpace(event.TargetPeerID)
+	event.Reason = strings.TrimSpace(event.Reason)
+	if event.Event == "" {
+		return
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	n.opts.OnRelayEvent(event)
 }
 
 func (n *Node) hasFreshSession(peerID string) bool {
@@ -1161,7 +1273,13 @@ func protocolErrorBySymbol(symbol string) *ProtocolError {
 	}
 }
 
-func normalizeNodeOptions(opts NodeOptions) NodeOptions {
+func normalizeNodeOptions(opts NodeOptions) (NodeOptions, error) {
+	relayMode, err := normalizeRelayMode(opts.RelayMode)
+	if err != nil {
+		return NodeOptions{}, err
+	}
+	opts.RelayMode = relayMode
+
 	if opts.DialAddrTimeout <= 0 {
 		opts.DialAddrTimeout = DefaultDialAddrTimeout
 	}
@@ -1195,7 +1313,20 @@ func normalizeNodeOptions(opts NodeOptions) NodeOptions {
 			opts.ListenAddrs = defaultPreferredListenAddrs()
 		}
 	}
-	return opts
+	return opts, nil
+}
+
+func normalizeRelayMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" {
+		return RelayModeAuto, nil
+	}
+	switch mode {
+	case RelayModeAuto, RelayModeOff, RelayModeRequired:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid relay mode %q (supported: %s, %s, %s)", raw, RelayModeAuto, RelayModeOff, RelayModeRequired)
+	}
 }
 
 func defaultPreferredListenAddrs() []string {

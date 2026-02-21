@@ -14,6 +14,7 @@ import (
 
 func newServeCmd() *cobra.Command {
 	var listenAddrs []string
+	var relayMode string
 	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -30,9 +31,13 @@ func newServeCmd() *cobra.Command {
 			logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
 			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
 				ListenAddrs: listenAddrs,
+				RelayMode:   relayMode,
 				Logger:      logger,
 				OnDataPush: func(event aqua.DataPushEvent) {
 					printDataPushEvent(cmd, event, outputJSON)
+				},
+				OnRelayEvent: func(event aqua.RelayEvent) {
+					printRelayEvent(cmd, event, outputJSON)
 				},
 			})
 			if err != nil {
@@ -42,13 +47,14 @@ func newServeCmd() *cobra.Command {
 
 			if outputJSON {
 				_ = writeJSON(cmd.OutOrStdout(), map[string]any{
-					"status":    "ready",
-					"peer_id":   node.PeerID(),
-					"node_uuid": identity.NodeUUID,
-					"addresses": node.AddrStrings(),
+					"status":     "ready",
+					"peer_id":    node.PeerID(),
+					"node_uuid":  identity.NodeUUID,
+					"addresses":  node.AddrStrings(),
+					"relay_mode": relayMode,
 				})
 			} else {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nnode_uuid: %s\npeer_id: %s\n", identity.NodeUUID, node.PeerID())
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\n", identity.NodeUUID, node.PeerID(), relayMode)
 				for _, addr := range node.AddrStrings() {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "address: %s\n", addr)
 				}
@@ -60,6 +66,7 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default tries /ip4/0.0.0.0/udp/6371/quic-v1 and /ip4/0.0.0.0/tcp/6371, then falls back to random ports")
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	return cmd
 }

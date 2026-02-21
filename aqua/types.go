@@ -24,6 +24,9 @@ const (
 	ContactCardSigAlgEd25519 = "ed25519"
 	ContactCardSigFormatJCS  = "jcs-rfc8785-detached"
 	ContactCardSignDomainV1  = "aqua-contact-card-v1\n"
+	RelayModeAuto            = "auto"
+	RelayModeOff             = "off"
+	RelayModeRequired        = "required"
 )
 
 type TrustState string
@@ -128,6 +131,15 @@ type DataPushEvent struct {
 	ReplyTo        string    `json:"reply_to,omitempty"`
 	ReceivedAt     time.Time `json:"received_at"`
 	Deduped        bool      `json:"deduped"`
+}
+
+type RelayEvent struct {
+	Event        string    `json:"event"`
+	Path         string    `json:"path,omitempty"`
+	RelayPeerID  string    `json:"relay_peer_id,omitempty"`
+	TargetPeerID string    `json:"target_peer_id,omitempty"`
+	Reason       string    `json:"reason,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 type DataPushRequest struct {

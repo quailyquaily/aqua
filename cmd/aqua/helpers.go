@@ -52,9 +52,17 @@ func extractPeerIDFromDialAddress(rawAddress string) (string, error) {
 }
 
 func newDialNode(cmd *cobra.Command) (*aqua.Node, error) {
+	return newDialNodeWithRelayMode(cmd, "")
+}
+
+func newDialNodeWithRelayMode(cmd *cobra.Command, relayMode string) (*aqua.Node, error) {
 	svc := serviceFromCmd(cmd)
 	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
-	return aqua.NewNode(cmd.Context(), svc, aqua.NodeOptions{DialOnly: true, Logger: logger})
+	return aqua.NewNode(cmd.Context(), svc, aqua.NodeOptions{
+		DialOnly:  true,
+		RelayMode: relayMode,
+		Logger:    logger,
+	})
 }
 
 func resolveCardExportAddressesForCommand(

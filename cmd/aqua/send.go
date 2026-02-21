@@ -12,6 +12,7 @@ import (
 
 func newSendCmd() *cobra.Command {
 	var addresses []string
+	var relayMode string
 	var topic string
 	var message string
 	var contentType string
@@ -60,7 +61,7 @@ func newSendCmd() *cobra.Command {
 				ReplyTo:        resolvedReplyTo,
 			}
 
-			node, err := newDialNode(cmd)
+			node, err := newDialNodeWithRelayMode(cmd, relayMode)
 			if err != nil {
 				return err
 			}
@@ -88,6 +89,7 @@ func newSendCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringArrayVar(&addresses, "address", nil, "Override dial address (repeatable)")
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
 	cmd.Flags().StringVar(&topic, "topic", "chat.message", "Data topic")
 	cmd.Flags().StringVar(&message, "message", "", "Message payload (optional; can also be provided as positional argument)")
 	cmd.Flags().StringVar(&contentType, "content-type", "text/plain", "Content type")

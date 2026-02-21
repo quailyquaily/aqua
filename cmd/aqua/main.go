@@ -664,10 +664,8 @@ func newPushCmd() *cobra.Command {
 			if contentType == "" {
 				contentType = "application/json"
 			}
-			if !strings.HasPrefix(strings.ToLower(contentType), "application/json") {
-				return fmt.Errorf("--content-type must be application/json envelope")
-			}
 			resolvedSessionID := strings.TrimSpace(sessionID)
+			resolvedReplyTo := strings.TrimSpace(replyTo)
 			if resolvedSessionID != "" {
 				parsedSession, err := uuid.Parse(resolvedSessionID)
 				if err != nil || parsedSession.Version() != uuid.Version(7) {
@@ -679,22 +677,22 @@ func newPushCmd() *cobra.Command {
 			}
 
 			messageID := uuid.NewString()
-			payload := map[string]any{
-				"message_id": messageID,
-				"text":       text,
-				"sent_at":    time.Now().UTC().Format(time.RFC3339),
+			var payloadBytes []byte
+			lowerContentType := strings.ToLower(contentType)
+			if strings.HasPrefix(lowerContentType, "application/json") {
+				payload := map[string]any{
+					"message_id": messageID,
+					"text":       text,
+					"sent_at":    time.Now().UTC().Format(time.RFC3339),
+				}
+				encodedPayload, err := json.Marshal(payload)
+				if err != nil {
+					return err
+				}
+				payloadBytes = encodedPayload
+			} else {
+				payloadBytes = []byte(text)
 			}
-			if resolvedSessionID != "" {
-				payload["session_id"] = resolvedSessionID
-			}
-			if strings.TrimSpace(replyTo) != "" {
-				payload["reply_to"] = strings.TrimSpace(replyTo)
-			}
-			payloadBytes, err := json.Marshal(payload)
-			if err != nil {
-				return err
-			}
-
 			idempotencyKey = strings.TrimSpace(idempotencyKey)
 			if idempotencyKey == "" {
 				idempotencyKey = messageEnvelopeKey(messageID)
@@ -705,6 +703,8 @@ func newPushCmd() *cobra.Command {
 				ContentType:    contentType,
 				PayloadBase64:  base64.RawURLEncoding.EncodeToString(payloadBytes),
 				IdempotencyKey: idempotencyKey,
+				SessionID:      resolvedSessionID,
+				ReplyTo:        resolvedReplyTo,
 			}
 
 			node, err := newDialNode(cmd)
@@ -724,12 +724,12 @@ func newPushCmd() *cobra.Command {
 					"content_type":    req.ContentType,
 					"idempotency_key": req.IdempotencyKey,
 					"session_id":      resolvedSessionID,
-					"reply_to":        strings.TrimSpace(replyTo),
+					"reply_to":        resolvedReplyTo,
 					"notification":    notify,
 					"result":          result,
 				})
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "peer_id: %s\ntopic: %s\ncontent_type: %s\nsession_id: %s\nreply_to: %s\nidempotency_key: %s\nnotification: %v\naccepted: %v\ndeduped: %v\n", args[0], req.Topic, req.ContentType, resolvedSessionID, strings.TrimSpace(replyTo), req.IdempotencyKey, notify, result.Accepted, result.Deduped)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "peer_id: %s\ntopic: %s\ncontent_type: %s\nsession_id: %s\nreply_to: %s\nidempotency_key: %s\nnotification: %v\naccepted: %v\ndeduped: %v\n", args[0], req.Topic, req.ContentType, resolvedSessionID, resolvedReplyTo, req.IdempotencyKey, notify, result.Accepted, result.Deduped)
 			return nil
 		},
 	}
@@ -737,7 +737,7 @@ func newPushCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&addresses, "address", nil, "Override dial address (repeatable)")
 	cmd.Flags().StringVar(&topic, "topic", "chat.message", "Data topic")
 	cmd.Flags().StringVar(&text, "text", "", "Text payload")
-	cmd.Flags().StringVar(&contentType, "content-type", "application/json", "Content type (must be application/json envelope)")
+	cmd.Flags().StringVar(&contentType, "content-type", "application/json", "Content type")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Idempotency key (default: derived from message_id)")
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session id for JSON payload")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Reply target message id for JSON payload")

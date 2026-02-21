@@ -182,13 +182,17 @@ func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, 
 	req.ContentType = strings.TrimSpace(req.ContentType)
 	req.PayloadBase64 = strings.TrimSpace(req.PayloadBase64)
 	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.ReplyTo = strings.TrimSpace(req.ReplyTo)
 
 	payloadBytes, decodeErr := base64.RawURLEncoding.DecodeString(req.PayloadBase64)
 	if decodeErr != nil {
 		return DataPushResult{}, WrapProtocolError(ErrInvalidParams, "payload_base64 decode failed")
 	}
-	sessionID, replyTo, err := extractAndValidateSessionForTopic(req.Topic, req.ContentType, payloadBytes)
-	if err != nil {
+	if len(payloadBytes) > n.opts.MaxPayloadBytes {
+		return DataPushResult{}, WrapProtocolError(ErrPayloadTooLarge, "payload exceeds max_payload_bytes")
+	}
+	if _, _, err := validateSessionForTopic(req.Topic, req.SessionID, req.ReplyTo); err != nil {
 		return DataPushResult{}, WrapProtocolError(ErrInvalidParams, "%s", err.Error())
 	}
 
@@ -197,6 +201,12 @@ func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, 
 		"content_type":    req.ContentType,
 		"payload_base64":  req.PayloadBase64,
 		"idempotency_key": req.IdempotencyKey,
+	}
+	if req.SessionID != "" {
+		params["session_id"] = req.SessionID
+	}
+	if req.ReplyTo != "" {
+		params["reply_to"] = req.ReplyTo
 	}
 	resultRaw, err := n.callRPC(ctx, peerID, addresses, "agent.data.push", params, notification)
 	if err != nil {
@@ -217,8 +227,8 @@ func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, 
 		ContentType:    req.ContentType,
 		PayloadBase64:  req.PayloadBase64,
 		IdempotencyKey: req.IdempotencyKey,
-		SessionID:      sessionID,
-		ReplyTo:        replyTo,
+		SessionID:      req.SessionID,
+		ReplyTo:        req.ReplyTo,
 		SentAt:         now,
 	}
 	if err := n.store.AppendOutboxMessage(context.Background(), outboxMessage); err != nil {
@@ -546,6 +556,8 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 		params.ContentType = strings.TrimSpace(params.ContentType)
 		params.PayloadBase64 = strings.TrimSpace(params.PayloadBase64)
 		params.IdempotencyKey = strings.TrimSpace(params.IdempotencyKey)
+		params.SessionID = strings.TrimSpace(params.SessionID)
+		params.ReplyTo = strings.TrimSpace(params.ReplyTo)
 
 		if params.Topic == "" {
 			return nil, ErrInvalidParamsSymbol, "topic is required"
@@ -575,7 +587,7 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 		if len(payloadBytes) > n.opts.MaxPayloadBytes {
 			return nil, ErrPayloadTooLargeSymbol, "payload exceeds max_payload_bytes"
 		}
-		sessionID, replyTo, err := extractAndValidateSessionForTopic(params.Topic, params.ContentType, payloadBytes)
+		sessionID, replyTo, err := validateSessionForTopic(params.Topic, params.SessionID, params.ReplyTo)
 		if err != nil {
 			return nil, ErrInvalidParamsSymbol, err.Error()
 		}
@@ -916,38 +928,9 @@ func readAllLimited(reader io.Reader, maxBytes int) ([]byte, bool, error) {
 	return data, false, nil
 }
 
-func extractAndValidateSessionForTopic(topic string, contentType string, payloadBytes []byte) (string, string, error) {
-	contentType = strings.ToLower(strings.TrimSpace(contentType))
-	if !strings.HasPrefix(contentType, "application/json") {
-		return "", "", fmt.Errorf("content_type must be application/json")
-	}
-	var envelope map[string]any
-	if err := decodeStrictJSON(payloadBytes, &envelope); err != nil {
-		return "", "", fmt.Errorf("invalid envelope json: %v", err)
-	}
-	if _, err := readRequiredEnvelopeString(envelope, "message_id"); err != nil {
-		return "", "", err
-	}
-	if _, err := readRequiredEnvelopeString(envelope, "text"); err != nil {
-		return "", "", err
-	}
-	sentAt, err := readRequiredEnvelopeString(envelope, "sent_at")
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := time.Parse(time.RFC3339, sentAt); err != nil {
-		return "", "", fmt.Errorf("sent_at must be RFC3339")
-	}
-
-	sessionID, err := readOptionalEnvelopeString(envelope, "session_id")
-	if err != nil {
-		return "", "", err
-	}
-	replyTo, err := readOptionalEnvelopeString(envelope, "reply_to")
-	if err != nil {
-		return "", "", err
-	}
-
+func validateSessionForTopic(topic string, sessionID string, replyTo string) (string, string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	replyTo = strings.TrimSpace(replyTo)
 	if IsDialogueTopic(topic) && sessionID == "" {
 		return "", "", fmt.Errorf("session_id is required for dialogue topics")
 	}
@@ -957,34 +940,6 @@ func extractAndValidateSessionForTopic(topic string, contentType string, payload
 		}
 	}
 	return sessionID, replyTo, nil
-}
-
-func readRequiredEnvelopeString(envelope map[string]any, key string) (string, error) {
-	raw, ok := envelope[key]
-	if !ok {
-		return "", fmt.Errorf("%s is required in envelope", key)
-	}
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be string in envelope", key)
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("%s must be non-empty in envelope", key)
-	}
-	return value, nil
-}
-
-func readOptionalEnvelopeString(envelope map[string]any, key string) (string, error) {
-	raw, ok := envelope[key]
-	if !ok {
-		return "", nil
-	}
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be string in envelope", key)
-	}
-	return strings.TrimSpace(value), nil
 }
 
 func validateSessionID(sessionID string) error {

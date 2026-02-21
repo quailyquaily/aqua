@@ -139,6 +139,8 @@ type DataPushRequest struct {
 	ContentType    string `json:"content_type"`
 	PayloadBase64  string `json:"payload_base64"`
 	IdempotencyKey string `json:"idempotency_key"`
+	SessionID      string `json:"session_id,omitempty"`
+	ReplyTo        string `json:"reply_to,omitempty"`
 }
 
 type DataPushResult struct {

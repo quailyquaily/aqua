@@ -68,3 +68,32 @@ func TestExpandAdvertiseAddresses_DedupesResults(t *testing.T) {
 		t.Fatalf("expected deduped addresses length=1, got %d (%v)", len(got), got)
 	}
 }
+
+func TestDefaultListenAddrs_IncludeWebSocket(t *testing.T) {
+	t.Parallel()
+
+	preferred := defaultPreferredListenAddrs()
+	if len(preferred) == 0 {
+		t.Fatalf("defaultPreferredListenAddrs should not be empty")
+	}
+	if !containsAddress(preferred, "/ip4/0.0.0.0/tcp/6372/ws") {
+		t.Fatalf("defaultPreferredListenAddrs missing ws entry: %v", preferred)
+	}
+
+	fallback := defaultFallbackListenAddrs()
+	if len(fallback) == 0 {
+		t.Fatalf("defaultFallbackListenAddrs should not be empty")
+	}
+	if !containsAddress(fallback, "/ip4/0.0.0.0/tcp/0/ws") {
+		t.Fatalf("defaultFallbackListenAddrs missing ws entry: %v", fallback)
+	}
+}
+
+func containsAddress(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}

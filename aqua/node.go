@@ -1512,6 +1512,7 @@ func defaultPreferredListenAddrs() []string {
 	return []string{
 		"/ip4/0.0.0.0/udp/6371/quic-v1",
 		"/ip4/0.0.0.0/tcp/6371",
+		"/ip4/0.0.0.0/tcp/6372/ws",
 	}
 }
 
@@ -1519,6 +1520,7 @@ func defaultFallbackListenAddrs() []string {
 	return []string{
 		"/ip4/0.0.0.0/udp/0/quic-v1",
 		"/ip4/0.0.0.0/tcp/0",
+		"/ip4/0.0.0.0/tcp/0/ws",
 	}
 }
 

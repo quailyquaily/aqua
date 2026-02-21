@@ -51,7 +51,7 @@ func newRelayServeCmd() *cobra.Command {
 
 			resolvedListenAddrs := normalizeAddressList(listenAddrs)
 			if len(resolvedListenAddrs) == 0 {
-				resolvedListenAddrs = []string{"/ip4/0.0.0.0/tcp/6371"}
+				resolvedListenAddrs = []string{"/ip4/0.0.0.0/tcp/6371", "/ip4/0.0.0.0/tcp/6372/ws"}
 			}
 			allowedPeers, err := parseRelayAllowlist(allowlist)
 			if err != nil {
@@ -111,7 +111,7 @@ func newRelayServeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringArrayVar(&listenAddrs, "listen", []string{"/ip4/0.0.0.0/tcp/6371"}, "Relay listen multiaddr (repeatable)")
+	cmd.Flags().StringArrayVar(&listenAddrs, "listen", []string{"/ip4/0.0.0.0/tcp/6371", "/ip4/0.0.0.0/tcp/6372/ws"}, "Relay listen multiaddr (repeatable)")
 	cmd.Flags().StringArrayVar(&allowlist, "allow-peer", nil, "Allowlist peer id (repeatable, default empty means allow all peers)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status as JSON")
 	return cmd

@@ -64,7 +64,7 @@ Machine A:
 
 ```bash
 aqua hello <B_PEER_ID>
-aqua push <B_PEER_ID> "hello from A"
+aqua send <B_PEER_ID> "hello from A"
 ```
 
 You should see inbound event output on Machine B (`serve` process).
@@ -83,11 +83,24 @@ Machine A:
 aqua outbox list --limit 10
 ```
 
-## Quick Start (With Relay, After Relay Support)
+## Quick Start (With Relay)
 
-This section assumes relay-related flags are available in a future Aqua release.
+This section shows a 3-node setup: Relay R, Machine A, and Machine B.
 
-### 1) Prepare identities on both machines
+### 1) Start a relay node (Machine R)
+
+```bash
+aqua init
+aqua relay serve \
+  --listen /ip4/0.0.0.0/tcp/6371 \
+  --listen /ip4/0.0.0.0/tcp/6372/ws
+```
+
+From relay output, copy one printed `address: ...` line:
+
+- `<RELAY_ADDR>` ends with `/p2p/<RELAY_PEER_ID>`
+
+### 2) Prepare identities on both edge machines
 
 Machine A:
 
@@ -109,9 +122,8 @@ Assume:
 
 - `<A_PEER_ID>` is Machine A peer ID
 - `<B_PEER_ID>` is Machine B peer ID
-- `<RELAY_ADDR>` is relay node multiaddr
 
-### 2) Start both nodes with relay enabled
+### 3) Start both edge nodes with relay enabled
 
 Machine A:
 
@@ -129,12 +141,12 @@ aqua serve \
   --relay-mode auto
 ```
 
-From each `serve` output, copy one printed `address: ...` line:
+From each `serve` output, copy one printed `address: ...` line (prefer relay-circuit addresses when present):
 
 - `<A_ADDR>` from Machine A (ends with `/p2p/<A_PEER_ID>`)
 - `<B_ADDR>` from Machine B (ends with `/p2p/<B_PEER_ID>`)
 
-### 3) Add each other as contacts (relay-aware path)
+### 4) Add each other as contacts (relay-aware path)
 
 Machine A:
 
@@ -148,13 +160,13 @@ Machine B:
 aqua contacts add "<A_ADDR>" --verify
 ```
 
-### 4) Connect and send without explicit address
+### 5) Connect and send without explicit address
 
 Machine A:
 
 ```bash
 aqua hello <B_PEER_ID>
-aqua push <B_PEER_ID> "hello with relay fallback"
+aqua send <B_PEER_ID> "hello with relay fallback"
 ```
 
 Expected behavior:
@@ -211,6 +223,8 @@ Usage:
 aqua card export \
   [--address <multiaddr> ...] \
   [--listen <multiaddr> ...] \
+  [--relay <multiaddr> ...] \
+  [--advertise auto|direct|relay|both] \
   [--out <file>] \
   [--min-protocol <int>] \
   [--max-protocol <int>] \
@@ -221,6 +235,8 @@ Flags:
 
 - `--address` (repeatable): contact card dial addresses. Must end with `/p2p/<peer_id>`.
 - `--listen` (repeatable): fallback source when `--address` is empty.
+- `--relay` (repeatable): relay endpoint addresses (`.../p2p/<relay_peer_id>`) used to construct relay-circuit advertise addresses.
+- `--advertise`: address publish strategy. Default `auto`.
 - `--out`: output file path. Default is stdout.
 - `--min-protocol`: minimum supported protocol version. Default `1`.
 - `--max-protocol`: maximum supported protocol version. Default `1`.
@@ -230,6 +246,10 @@ Behavior notes:
 
 - If `--address` is present, it is used directly.
 - If `--address` is empty, addresses are derived from `--listen`.
+- `--advertise=direct`: publish direct addresses only.
+- `--advertise=relay`: publish relay-circuit addresses only.
+- `--advertise=both`: publish direct and relay addresses.
+- `--advertise=auto`: publish direct only when relay addresses are absent, otherwise publish both.
 - In interactive terminals, if multiple valid derived addresses exist, Aqua prompts for selection.
 - In non-interactive mode with ambiguous addresses, Aqua returns an error.
 
@@ -324,7 +344,11 @@ aqua contacts verify <peer_id>
 Usage:
 
 ```bash
-aqua serve [--listen <multiaddr> ...] [--json]
+aqua serve \
+  [--listen <multiaddr> ...] \
+  [--relay <multiaddr> ...] \
+  [--relay-mode auto|off|required] \
+  [--json]
 ```
 
 Flags:
@@ -332,12 +356,36 @@ Flags:
 - `--listen` (repeatable): listen multiaddrs.
   - default preferred: `/ip4/0.0.0.0/udp/6371/quic-v1`
   - default preferred: `/ip4/0.0.0.0/tcp/6371`
-  - fallback on bind failure: random ports (`/udp/0` and `/tcp/0`)
+  - default preferred: `/ip4/0.0.0.0/tcp/6372/ws`
+  - fallback on bind failure: random ports (`/udp/0`, `/tcp/0`, `/tcp/0/ws`)
+- `--relay` (repeatable): relay endpoints to reserve.
+- `--relay-mode`: `auto|off|required` (default `auto`).
 - `--json`: print ready/event output as JSON.
 
 Behavior notes:
 
 - For wildcard listen addresses (`0.0.0.0` or `::`), Aqua auto-expands printed addresses with detected local interface IPs (for example Tailscale).
+- With configured `--relay`, Aqua attempts Circuit Relay v2 reservation at startup.
+- `--json` includes relay events like `relay.reservation.ok`, `relay.path.selected`, and `relay.fallback`.
+
+#### `aqua relay serve`
+
+Usage:
+
+```bash
+aqua relay serve [--listen <multiaddr> ...] [--allow-peer <peer_id> ...] [--json]
+```
+
+Flags:
+
+- `--listen` (repeatable): relay service listen addresses. Defaults `/ip4/0.0.0.0/tcp/6371` and `/ip4/0.0.0.0/tcp/6372/ws`.
+- `--allow-peer` (repeatable): peer allowlist. Default empty means allow all peers.
+- `--json`: print ready output as JSON.
+
+Behavior notes:
+
+- Uses libp2p Circuit Relay v2 service mode.
+- When allowlist is set, both source and destination peers must be allowlisted for relayed connect.
 
 ### Dialing Commands
 
@@ -345,13 +393,14 @@ Behavior notes:
 
 - `--address` is optional and repeatable.
 - If omitted, Aqua uses addresses from the contact card for `<peer_id>`.
+- `--relay-mode` controls direct/relay preference (`auto|off|required`, default `auto`).
 
 #### `aqua hello`
 
 Usage:
 
 ```bash
-aqua hello <peer_id> [--address <multiaddr> ...] [--json]
+aqua hello <peer_id> [--address <multiaddr> ...] [--relay-mode auto|off|required] [--json]
 ```
 
 #### `aqua ping`
@@ -359,7 +408,7 @@ aqua hello <peer_id> [--address <multiaddr> ...] [--json]
 Usage:
 
 ```bash
-aqua ping <peer_id> [--address <multiaddr> ...] [--json]
+aqua ping <peer_id> [--address <multiaddr> ...] [--relay-mode auto|off|required] [--json]
 ```
 
 #### `aqua capabilities`
@@ -367,19 +416,20 @@ aqua ping <peer_id> [--address <multiaddr> ...] [--json]
 Usage:
 
 ```bash
-aqua capabilities <peer_id> [--address <multiaddr> ...] [--json]
+aqua capabilities <peer_id> [--address <multiaddr> ...] [--relay-mode auto|off|required] [--json]
 ```
 
-### Push
+### Send
 
-#### `aqua push`
+#### `aqua send`
 
 Usage:
 
 ```bash
-aqua push <peer_id> \
+aqua send <peer_id> \
   [message] \
   [--address <multiaddr> ...] \
+  [--relay-mode auto|off|required] \
   [--topic <topic>] \
   [--message <message>] \
   [--content-type <type>] \

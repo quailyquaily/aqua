@@ -7,7 +7,7 @@ Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`
 - Peer-to-peer agent communication with identity verification.
 - End-to-end encrypted messaging.
 - Durable message storage with inbox/outbox.
-- Relay support for NAT traversal and connectivity (WIP).
+- Circuit Relay v2 support for cross-network connectivity.
 - Simple CLI for node management and messaging.
 
 ## Install
@@ -91,6 +91,21 @@ aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
 aqua send <peer_id> "hello"
 ```
 
+## Relay Quick Start
+
+```bash
+# 1) Start relay service on relay machine
+aqua relay serve \
+  --listen /ip4/0.0.0.0/tcp/6371 \
+  --listen /ip4/0.0.0.0/tcp/6372/ws
+
+# 2) Start edge node with relay on each client machine
+aqua serve --relay /dns4/<relay-host>/tcp/6371/p2p/<relay_peer_id> --relay-mode auto
+
+# 3) Relay-aware address publish (optional)
+aqua card export --relay /dns4/<relay-host>/tcp/6371/p2p/<relay_peer_id> --advertise both
+```
+
 ## AI Agent Skill
 
 For agents that need to communicate over Aqua, see `SKILL.md`.
@@ -108,9 +123,11 @@ You can override it with:
 ## CLI Commands
 
 - `init`, `id`
-- `card export`
+- `card export` (`--relay`, `--advertise auto|direct|relay|both`)
 - `contacts list/add/import/show/verify/del`
-- `serve`, `hello`, `ping`, `capabilities`, `send`
+- `serve` (`--relay`, `--relay-mode auto|off|required`)
+- `relay serve` (`--allow-peer`, default empty allowlist = allow all)
+- `hello`, `ping`, `capabilities`, `send` (`--relay-mode auto|off|required`)
 - `inbox list/mark-read`, `outbox list`
 - `version`
 
@@ -118,3 +135,4 @@ You can override it with:
 
 - `docs/architecture.md`
 - `docs/cli.md`
+- `docs/relay.md`

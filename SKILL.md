@@ -69,7 +69,7 @@ aqua send <PEER_ID> "reply text" --reply-to <MESSAGE_ID>
 Session behavior:
 
 - For `chat.message`, session is expected.
-- If `--session-id` is omitted, CLI auto-generates UUIDv7.
+- If `--session-id` is omitted, CLI auto-generates UUIDv7, but it will lose session semantics (treated as one-off message).
 
 ## Read Message History
 

@@ -51,7 +51,7 @@ Built-in dialogue topics (session-based):
 
 - `chat.message`: default chat message topic.
 
-For dialogue topics, `session_id` is required. If you omit `--session-id`, Aqua auto-generates a UUIDv7.
+For dialogue topics, `session_id` is recommended, to group messages within it. If you omit `--session-id`, Aqua auto-generates a UUIDv7.
 
 Non-dialogue topics:
 

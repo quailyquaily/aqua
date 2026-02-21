@@ -51,7 +51,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newHelloCmd())
 	cmd.AddCommand(newPingCmd())
 	cmd.AddCommand(newCapabilitiesCmd())
-	cmd.AddCommand(newPushCmd())
+	cmd.AddCommand(newSendCmd())
 	return cmd
 }
 
@@ -761,7 +761,7 @@ func newCapabilitiesCmd() *cobra.Command {
 	return cmd
 }
 
-func newPushCmd() *cobra.Command {
+func newSendCmd() *cobra.Command {
 	var addresses []string
 	var topic string
 	var message string
@@ -773,7 +773,7 @@ func newPushCmd() *cobra.Command {
 	var outputJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "push <peer_id> [message]",
+		Use:   "send <peer_id> [message]",
 		Short: "Send agent.data.push to a contact",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {

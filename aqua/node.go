@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -147,15 +149,99 @@ func (n *Node) AddrStrings() []string {
 		return nil
 	}
 	baseAddrs := n.host.Addrs()
-	out := make([]string, 0, len(baseAddrs))
+	baseStrings := make([]string, 0, len(baseAddrs))
 	for _, addr := range baseAddrs {
-		p2pComponent, err := ma.NewMultiaddr("/p2p/" + n.host.ID().String())
+		baseStrings = append(baseStrings, addr.String())
+	}
+	advertiseStrings := normalizeAddresses(baseStrings)
+	if hasWildcardListenAddress(n.opts.ListenAddrs) {
+		if localIPs, err := discoverInterfaceIPs(); err == nil && len(localIPs) > 0 {
+			advertiseStrings = expandAdvertiseAddresses(advertiseStrings, localIPs)
+		}
+	}
+
+	out := make([]string, 0, len(advertiseStrings))
+	p2pComponent, err := ma.NewMultiaddr("/p2p/" + n.host.ID().String())
+	if err != nil {
+		return nil
+	}
+	for _, rawAddr := range advertiseStrings {
+		addr, err := ma.NewMultiaddr(rawAddr)
 		if err != nil {
 			continue
 		}
 		out = append(out, addr.Encapsulate(p2pComponent).String())
 	}
+	out = normalizeAddresses(out)
 	sortStrings(out)
+	return out
+}
+
+func hasWildcardListenAddress(listenAddrs []string) bool {
+	for _, raw := range normalizeAddresses(listenAddrs) {
+		addr, err := ma.NewMultiaddr(raw)
+		if err != nil {
+			continue
+		}
+		if value, err := addr.ValueForProtocol(ma.P_IP4); err == nil {
+			if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+				return true
+			}
+		}
+		if value, err := addr.ValueForProtocol(ma.P_IP6); err == nil {
+			if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func expandAdvertiseAddresses(baseAddrs []string, localIPs []net.IP) []string {
+	out := make([]string, 0, len(baseAddrs))
+	seen := map[string]bool{}
+	add := func(addr string) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || seen[addr] {
+			return
+		}
+		seen[addr] = true
+		out = append(out, addr)
+	}
+
+	for _, raw := range normalizeAddresses(baseAddrs) {
+		add(raw)
+		maddr, err := ma.NewMultiaddr(raw)
+		if err != nil {
+			continue
+		}
+
+		if _, err := maddr.ValueForProtocol(ma.P_IP4); err == nil {
+			for _, localIP := range localIPs {
+				v4 := localIP.To4()
+				if v4 == nil {
+					continue
+				}
+				replaced, err := replaceMultiaddrIPComponent(maddr, ma.P_IP4, v4.String())
+				if err != nil {
+					continue
+				}
+				add(replaced.String())
+			}
+		}
+		if _, err := maddr.ValueForProtocol(ma.P_IP6); err == nil {
+			for _, localIP := range localIPs {
+				if localIP.To4() != nil || localIP.To16() == nil {
+					continue
+				}
+				replaced, err := replaceMultiaddrIPComponent(maddr, ma.P_IP6, localIP.String())
+				if err != nil {
+					continue
+				}
+				add(replaced.String())
+			}
+		}
+	}
 	return out
 }
 
@@ -1153,5 +1239,110 @@ func sortStrings(values []string) {
 				values[i], values[j] = values[j], values[i]
 			}
 		}
+	}
+}
+
+func replaceMultiaddrIPComponent(addr ma.Multiaddr, protoCode int, value string) (ma.Multiaddr, error) {
+	if addr == nil {
+		return nil, fmt.Errorf("nil multiaddr")
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return addr, nil
+	}
+	raw := addr.String()
+	updated := raw
+	switch protoCode {
+	case ma.P_IP4:
+		if strings.Contains(raw, "/ip4/") {
+			parts := strings.Split(raw, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				if parts[i] == "ip4" {
+					parts[i+1] = value
+					updated = strings.Join(parts, "/")
+					break
+				}
+			}
+		}
+	case ma.P_IP6:
+		if strings.Contains(raw, "/ip6/") {
+			parts := strings.Split(raw, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				if parts[i] == "ip6" {
+					parts[i+1] = value
+					updated = strings.Join(parts, "/")
+					break
+				}
+			}
+		}
+	default:
+		return addr, nil
+	}
+	if updated == raw {
+		return addr, nil
+	}
+	rebuilt, err := ma.NewMultiaddr(updated)
+	if err != nil {
+		return nil, err
+	}
+	return rebuilt, nil
+}
+
+func discoverInterfaceIPs() ([]net.IP, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]net.IP, 0, 8)
+	seen := map[string]bool{}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip := interfaceAddrIP(addr)
+			if ip == nil || ip.IsUnspecified() {
+				continue
+			}
+			key := ip.String()
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, ip)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].IsLoopback() != out[j].IsLoopback() {
+			return !out[i].IsLoopback()
+		}
+		isV4i := out[i].To4() != nil
+		isV4j := out[j].To4() != nil
+		if isV4i != isV4j {
+			return isV4i
+		}
+		return out[i].String() < out[j].String()
+	})
+	return out, nil
+}
+
+func interfaceAddrIP(addr net.Addr) net.IP {
+	switch v := addr.(type) {
+	case *net.IPNet:
+		if v == nil || v.IP == nil {
+			return nil
+		}
+		return v.IP
+	case *net.IPAddr:
+		if v == nil || v.IP == nil {
+			return nil
+		}
+		return v.IP
+	default:
+		return nil
 	}
 }

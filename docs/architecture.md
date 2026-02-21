@@ -25,7 +25,7 @@ The goal is to make Aqua independently buildable, runnable, and releasable witho
 
 ## Data Persistence
 
-Default directory: `~/.aqua/aqua` (overridable via `--dir` or `AQUA_DIR`).
+Default directory: `~/.aqua` (overridable via `--dir` or `AQUA_DIR`).
 
 Core files:
 

@@ -1483,9 +1483,9 @@ func defaultAquaDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return ".aqua/aqua"
+		return ".aqua"
 	}
-	return filepath.Join(home, ".aqua", "aqua")
+	return filepath.Join(home, ".aqua")
 }
 
 func expandHomePath(path string) string {

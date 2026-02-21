@@ -45,7 +45,7 @@ aqua push <peer_id> "hello"
 
 ## Data Directory
 
-Default directory: `~/.aqua/aqua`
+Default directory: `~/.aqua`
 
 You can override it with:
 

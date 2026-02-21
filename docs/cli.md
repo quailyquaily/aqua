@@ -11,7 +11,6 @@ Machine A:
 ```bash
 aqua init
 aqua id "alice"
-aqua id
 ```
 
 Machine B:
@@ -19,7 +18,6 @@ Machine B:
 ```bash
 aqua init
 aqua id "bob"
-aqua id
 ```
 
 Assume:
@@ -335,6 +333,10 @@ Flags:
   - default preferred: `/ip4/0.0.0.0/tcp/6371`
   - fallback on bind failure: random ports (`/udp/0` and `/tcp/0`)
 - `--json`: print ready/event output as JSON.
+
+Behavior notes:
+
+- For wildcard listen addresses (`0.0.0.0` or `::`), Aqua auto-expands printed addresses with detected local interface IPs (for example Tailscale).
 
 ### Dialing Commands
 

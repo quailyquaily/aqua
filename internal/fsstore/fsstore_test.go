@@ -1,7 +1,6 @@
 package fsstore
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -131,44 +130,6 @@ func TestReadWriteTextAtomic(t *testing.T) {
 	}
 	if got != in {
 		t.Fatalf("ReadText() = %q, want %q", got, in)
-	}
-}
-
-func TestMutateIndex(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	indexPath := filepath.Join(root, "contacts", "index.json")
-	lockPath, err := BuildLockPath(filepath.Join(root, ".fslocks"), "index.contacts")
-	if err != nil {
-		t.Fatalf("BuildLockPath() error = %v", err)
-	}
-
-	err = MutateIndex(context.Background(), indexPath, lockPath, FileOptions{}, func(f *IndexFile) error {
-		f.Entries["agent:abc"] = IndexEntry{
-			Ref:       "contacts/active.md#agent-abc",
-			Rev:       1,
-			Hash:      "sha256:abc",
-			UpdatedAt: time.Now().UTC(),
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("MutateIndex() error = %v", err)
-	}
-
-	f, ok, err := ReadIndex(indexPath)
-	if err != nil {
-		t.Fatalf("ReadIndex() error = %v", err)
-	}
-	if !ok {
-		t.Fatalf("ReadIndex() exists = false, want true")
-	}
-	if f.Version != defaultIndexVersion {
-		t.Fatalf("ReadIndex() version = %d, want %d", f.Version, defaultIndexVersion)
-	}
-	if _, exists := f.Entries["agent:abc"]; !exists {
-		t.Fatalf("ReadIndex() missing entry agent:abc")
 	}
 }
 

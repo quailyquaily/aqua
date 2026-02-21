@@ -242,25 +242,6 @@ func TestFileStorePruneDedupeRecords_GlobalMaxEntriesAndTTL(t *testing.T) {
 	}
 }
 
-func TestSessionScopeByTopic_DialogueTopicsShareScope(t *testing.T) {
-	share := SessionScopeByTopic("share.proactive.v1")
-	reply := SessionScopeByTopic("dm.reply.v1")
-	checkin := SessionScopeByTopic("dm.checkin.v1")
-	chat := SessionScopeByTopic("chat.message")
-
-	want := "dialogue.v1"
-	for _, got := range []string{share, reply, checkin, chat} {
-		if got != want {
-			t.Fatalf("SessionScopeByTopic mismatch: got %q want %q", got, want)
-		}
-	}
-
-	other := SessionScopeByTopic("agent.status.v1")
-	if other != "topic:agent.status.v1" {
-		t.Fatalf("SessionScopeByTopic for non-dialogue topic mismatch: got %q", other)
-	}
-}
-
 func TestFileStoreAppendInboxMessage_DoesNotAutoFillSessionID(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "maep")

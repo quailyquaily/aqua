@@ -10,15 +10,3 @@ func IsDialogueTopic(topic string) bool {
 		return false
 	}
 }
-
-func SessionScopeByTopic(topic string) string {
-	t := strings.ToLower(strings.TrimSpace(topic))
-	switch {
-	case IsDialogueTopic(t):
-		return "dialogue.v1"
-	case t == "":
-		return "default"
-	default:
-		return "topic:" + t
-	}
-}

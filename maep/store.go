@@ -22,6 +22,4 @@ type Store interface {
 	GetDedupeRecord(ctx context.Context, fromPeerID string, topic string, idempotencyKey string) (DedupeRecord, bool, error)
 	PutDedupeRecord(ctx context.Context, record DedupeRecord) error
 	PruneDedupeRecords(ctx context.Context, now time.Time, maxEntries int) (int, error)
-	GetProtocolHistory(ctx context.Context, peerID string) (ProtocolHistory, bool, error)
-	PutProtocolHistory(ctx context.Context, history ProtocolHistory) error
 }

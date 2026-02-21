@@ -72,7 +72,7 @@ func TestFileStoreIdentityAndContacts(t *testing.T) {
 	}
 }
 
-func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
+func TestFileStoreDedupeAndMessages(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "maep")
 	store := NewFileStore(root)
@@ -101,26 +101,6 @@ func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
 	}
 	if gotRecord.IdempotencyKey != record.IdempotencyKey {
 		t.Fatalf("dedupe idempotency_key mismatch: got %s want %s", gotRecord.IdempotencyKey, record.IdempotencyKey)
-	}
-
-	history := ProtocolHistory{
-		PeerID:                 "12D3KooWpeerB",
-		LastRemoteMaxProtocol:  1,
-		LastNegotiatedProtocol: 1,
-		UpdatedAt:              now,
-	}
-	if err := store.PutProtocolHistory(ctx, history); err != nil {
-		t.Fatalf("PutProtocolHistory() error = %v", err)
-	}
-	gotHistory, ok, err := store.GetProtocolHistory(ctx, history.PeerID)
-	if err != nil {
-		t.Fatalf("GetProtocolHistory() error = %v", err)
-	}
-	if !ok {
-		t.Fatalf("GetProtocolHistory() expected ok=true")
-	}
-	if gotHistory.LastNegotiatedProtocol != history.LastNegotiatedProtocol {
-		t.Fatalf("protocol history negotiated mismatch: got %d want %d", gotHistory.LastNegotiatedProtocol, history.LastNegotiatedProtocol)
 	}
 
 	messageA := InboxMessage{

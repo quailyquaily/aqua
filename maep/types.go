@@ -114,13 +114,6 @@ type DedupeRecord struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 }
 
-type ProtocolHistory struct {
-	PeerID                 string    `json:"peer_id"`
-	LastRemoteMaxProtocol  int       `json:"last_remote_max_protocol"`
-	LastNegotiatedProtocol int       `json:"last_negotiated_protocol"`
-	UpdatedAt              time.Time `json:"updated_at"`
-}
-
 type DataPushEvent struct {
 	FromPeerID     string    `json:"from_peer_id"`
 	Topic          string    `json:"topic"`

@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	contactsFileVersion        = 1
-	dedupeFileVersion          = 1
-	protocolHistoryFileVersion = 1
+	contactsFileVersion = 1
+	dedupeFileVersion   = 1
 )
 
 type FileStore struct {
@@ -36,11 +35,6 @@ type contactsFile struct {
 type dedupeFile struct {
 	Version int            `json:"version"`
 	Records []DedupeRecord `json:"records"`
-}
-
-type protocolHistoryFile struct {
-	Version int               `json:"version"`
-	Records []ProtocolHistory `json:"records"`
 }
 
 func NewFileStore(root string) *FileStore {
@@ -509,57 +503,6 @@ func (s *FileStore) PruneDedupeRecords(ctx context.Context, now time.Time, maxEn
 	return removed, nil
 }
 
-func (s *FileStore) GetProtocolHistory(ctx context.Context, peerID string) (ProtocolHistory, bool, error) {
-	if err := s.ensureNotCanceled(ctx); err != nil {
-		return ProtocolHistory{}, false, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	history, err := s.loadProtocolHistoryLocked()
-	if err != nil {
-		return ProtocolHistory{}, false, err
-	}
-	peerID = strings.TrimSpace(peerID)
-	for _, record := range history {
-		if strings.TrimSpace(record.PeerID) == peerID {
-			return record, true, nil
-		}
-	}
-	return ProtocolHistory{}, false, nil
-}
-
-func (s *FileStore) PutProtocolHistory(ctx context.Context, history ProtocolHistory) error {
-	if err := s.ensureNotCanceled(ctx); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.withStateLock(ctx, func() error {
-		records, err := s.loadProtocolHistoryLocked()
-		if err != nil {
-			return err
-		}
-
-		history.PeerID = strings.TrimSpace(history.PeerID)
-		if history.UpdatedAt.IsZero() {
-			history.UpdatedAt = time.Now().UTC()
-		}
-		replaced := false
-		for i := range records {
-			if strings.TrimSpace(records[i].PeerID) == history.PeerID {
-				records[i] = history
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
-			records = append(records, history)
-		}
-		return s.saveProtocolHistoryLocked(records)
-	})
-}
-
 func (s *FileStore) loadContactsLocked() ([]Contact, error) {
 	var file contactsFile
 	ok, err := s.readJSONFile(s.contactsPath(), &file)
@@ -677,30 +620,6 @@ func (s *FileStore) appendOutboxMessageLocked(message OutboxMessage) error {
 		return fmt.Errorf("append outbox message: %w", err)
 	}
 	return nil
-}
-
-func (s *FileStore) loadProtocolHistoryLocked() ([]ProtocolHistory, error) {
-	var file protocolHistoryFile
-	ok, err := s.readJSONFile(s.protocolHistoryPath(), &file)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return []ProtocolHistory{}, nil
-	}
-	out := make([]ProtocolHistory, 0, len(file.Records))
-	for _, record := range file.Records {
-		out = append(out, record)
-	}
-	return out, nil
-}
-
-func (s *FileStore) saveProtocolHistoryLocked(records []ProtocolHistory) error {
-	sort.Slice(records, func(i, j int) bool {
-		return strings.TrimSpace(records[i].PeerID) < strings.TrimSpace(records[j].PeerID)
-	})
-	file := protocolHistoryFile{Version: protocolHistoryFileVersion, Records: records}
-	return s.writeJSONFileAtomic(s.protocolHistoryPath(), file, 0o600)
 }
 
 func (s *FileStore) readJSONFile(path string, out any) (bool, error) {
@@ -890,8 +809,4 @@ func (s *FileStore) inboxPathJSONL() string {
 
 func (s *FileStore) outboxPathJSONL() string {
 	return filepath.Join(s.rootPath(), "outbox_messages.jsonl")
-}
-
-func (s *FileStore) protocolHistoryPath() string {
-	return filepath.Join(s.rootPath(), "protocol_history.json")
 }

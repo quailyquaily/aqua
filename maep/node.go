@@ -298,7 +298,7 @@ func (n *Node) DialHello(ctx context.Context, peerID string, addresses []string)
 		RemoteMaxProtocol:  remoteHello.ProtocolMax,
 		NegotiatedProtocol: negotiated,
 	}
-	if err := n.recordSession(context.Background(), result); err != nil {
+	if err := n.recordSession(result); err != nil {
 		n.opts.Logger.Warn("record hello session failed", "peer_id", expectedPeerID.String(), "err", err)
 	}
 	return result, nil
@@ -448,7 +448,7 @@ func (n *Node) handleHelloStream(stream network.Stream) {
 		RemoteMaxProtocol:  remoteHello.ProtocolMax,
 		NegotiatedProtocol: negotiated,
 	}
-	if err := n.recordSession(context.Background(), result); err != nil {
+	if err := n.recordSession(result); err != nil {
 		n.opts.Logger.Warn("record hello session failed", "peer_id", remotePeer, "err", err)
 	}
 
@@ -817,7 +817,7 @@ func (n *Node) allowDataPush(peerID string, now time.Time) bool {
 	return true
 }
 
-func (n *Node) recordSession(ctx context.Context, result HelloResult) error {
+func (n *Node) recordSession(result HelloResult) error {
 	peerID := strings.TrimSpace(result.RemotePeerID)
 	if peerID == "" {
 		return fmt.Errorf("empty remote peer id")
@@ -827,26 +827,7 @@ func (n *Node) recordSession(ctx context.Context, result HelloResult) error {
 	n.mu.Lock()
 	n.sessions[peerID] = result
 	n.mu.Unlock()
-
-	oldHistory, foundOld, err := n.store.GetProtocolHistory(ctx, peerID)
-	if err != nil {
-		return err
-	}
-	if foundOld {
-		if result.RemoteMaxProtocol < oldHistory.LastRemoteMaxProtocol {
-			n.opts.Logger.Warn("maep downgrade suspected: remote_max_protocol decreased", "peer_id", peerID, "previous", oldHistory.LastRemoteMaxProtocol, "current", result.RemoteMaxProtocol)
-		}
-		if result.NegotiatedProtocol < oldHistory.LastNegotiatedProtocol {
-			n.opts.Logger.Warn("maep downgrade suspected: negotiated_protocol decreased", "peer_id", peerID, "previous", oldHistory.LastNegotiatedProtocol, "current", result.NegotiatedProtocol)
-		}
-	}
-	history := ProtocolHistory{
-		PeerID:                 peerID,
-		LastRemoteMaxProtocol:  result.RemoteMaxProtocol,
-		LastNegotiatedProtocol: result.NegotiatedProtocol,
-		UpdatedAt:              now,
-	}
-	return n.store.PutProtocolHistory(ctx, history)
+	return nil
 }
 
 func parseHelloMessage(raw []byte) (helloMessage, error) {

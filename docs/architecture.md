@@ -32,6 +32,7 @@ Core files:
 - `identity.json`: local identity (including peer_id and key material)
 - `contacts.json`: contact registry
 - `inbox_messages.jsonl`: received messages
+- `inbox_read_state.json`: read/unread state for inbox messages
 - `outbox_messages.jsonl`: sent messages
 - `dedupe_records.json`: idempotency/deduplication records
 - `protocol_history.json`: protocol negotiation history

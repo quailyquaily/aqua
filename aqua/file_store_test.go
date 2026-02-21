@@ -166,6 +166,44 @@ func TestFileStoreDedupeAndMessages(t *testing.T) {
 	if inbox[0].SessionID != messageA.SessionID {
 		t.Fatalf("inbox session_id mismatch: got %s want %s", inbox[0].SessionID, messageA.SessionID)
 	}
+	if inbox[0].Read {
+		t.Fatalf("expected unread inbox message before mark-read")
+	}
+	if inbox[0].ReadAt != nil {
+		t.Fatalf("expected nil read_at before mark-read")
+	}
+
+	marked, err := store.MarkInboxMessagesRead(ctx, []string{messageA.MessageID}, now.Add(20*time.Second))
+	if err != nil {
+		t.Fatalf("MarkInboxMessagesRead() error = %v", err)
+	}
+	if marked != 1 {
+		t.Fatalf("MarkInboxMessagesRead() marked mismatch: got %d want 1", marked)
+	}
+	inboxAfterRead, err := store.ListInboxMessages(ctx, "12D3KooWpeerA", "", 10)
+	if err != nil {
+		t.Fatalf("ListInboxMessages(after mark-read) error = %v", err)
+	}
+	if len(inboxAfterRead) != 1 {
+		t.Fatalf("ListInboxMessages(after mark-read) length mismatch: got %d want 1", len(inboxAfterRead))
+	}
+	if !inboxAfterRead[0].Read {
+		t.Fatalf("expected inbox message to be read after mark-read")
+	}
+	if inboxAfterRead[0].ReadAt == nil {
+		t.Fatalf("expected read_at after mark-read")
+	}
+
+	inboxUnread, err := store.ListInboxMessages(ctx, "12D3KooWpeerB", "", 10)
+	if err != nil {
+		t.Fatalf("ListInboxMessages(peerB) error = %v", err)
+	}
+	if len(inboxUnread) != 1 {
+		t.Fatalf("ListInboxMessages(peerB) length mismatch: got %d want 1", len(inboxUnread))
+	}
+	if inboxUnread[0].Read {
+		t.Fatalf("expected unrelated inbox message to remain unread")
+	}
 
 	outboxA := OutboxMessage{
 		MessageID:      "msg-901",

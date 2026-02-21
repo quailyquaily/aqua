@@ -16,6 +16,7 @@ type Store interface {
 	ListContacts(ctx context.Context) ([]Contact, error)
 	AppendInboxMessage(ctx context.Context, message InboxMessage) error
 	ListInboxMessages(ctx context.Context, fromPeerID string, topic string, limit int) ([]InboxMessage, error)
+	MarkInboxMessagesRead(ctx context.Context, messageIDs []string, now time.Time) (int, error)
 	AppendOutboxMessage(ctx context.Context, message OutboxMessage) error
 	ListOutboxMessages(ctx context.Context, toPeerID string, topic string, limit int) ([]OutboxMessage, error)
 	GetDedupeRecord(ctx context.Context, fromPeerID string, topic string, idempotencyKey string) (DedupeRecord, bool, error)

@@ -198,6 +198,13 @@ func (s *Service) ListInboxMessages(ctx context.Context, fromPeerID string, topi
 	return s.store.ListInboxMessages(ctx, fromPeerID, topic, limit)
 }
 
+func (s *Service) MarkInboxMessagesRead(ctx context.Context, messageIDs []string, now time.Time) (int, error) {
+	if s == nil || s.store == nil {
+		return 0, fmt.Errorf("nil aqua service")
+	}
+	return s.store.MarkInboxMessagesRead(ctx, messageIDs, normalizedNow(now))
+}
+
 func (s *Service) ListOutboxMessages(ctx context.Context, toPeerID string, topic string, limit int) ([]OutboxMessage, error) {
 	if s == nil || s.store == nil {
 		return nil, fmt.Errorf("nil aqua service")

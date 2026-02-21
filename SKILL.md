@@ -78,13 +78,24 @@ Inbox (received):
 ```bash
 aqua inbox list --limit 20
 aqua inbox list --from-peer-id <PEER_ID> --limit 20
+aqua inbox list --unread --limit 20
 ```
+
+Note: `aqua inbox list --unread` auto-marks the listed messages as read.
 
 Outbox (sent):
 
 ```bash
 aqua outbox list --limit 20
 aqua outbox list --to-peer-id <PEER_ID> --limit 20
+```
+
+Mark processed messages as read:
+
+```bash
+aqua inbox mark-read <MESSAGE_ID>
+# or batch mark all unread from one peer/topic
+aqua inbox mark-read --all --from-peer-id <PEER_ID> --topic chat.message
 ```
 
 ## JSON Mode (Agent-Friendly)

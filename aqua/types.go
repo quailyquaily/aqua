@@ -145,15 +145,17 @@ type DataPushResult struct {
 }
 
 type InboxMessage struct {
-	MessageID      string    `json:"message_id"`
-	FromPeerID     string    `json:"from_peer_id"`
-	Topic          string    `json:"topic"`
-	ContentType    string    `json:"content_type"`
-	PayloadBase64  string    `json:"payload_base64"`
-	IdempotencyKey string    `json:"idempotency_key"`
-	SessionID      string    `json:"session_id,omitempty"`
-	ReplyTo        string    `json:"reply_to,omitempty"`
-	ReceivedAt     time.Time `json:"received_at"`
+	MessageID      string     `json:"message_id"`
+	FromPeerID     string     `json:"from_peer_id"`
+	Topic          string     `json:"topic"`
+	ContentType    string     `json:"content_type"`
+	PayloadBase64  string     `json:"payload_base64"`
+	IdempotencyKey string     `json:"idempotency_key"`
+	SessionID      string     `json:"session_id,omitempty"`
+	ReplyTo        string     `json:"reply_to,omitempty"`
+	Read           bool       `json:"read"`
+	ReadAt         *time.Time `json:"read_at,omitempty"`
+	ReceivedAt     time.Time  `json:"received_at"`
 }
 
 type OutboxMessage struct {

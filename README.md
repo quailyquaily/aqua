@@ -62,7 +62,7 @@ You can override it with:
 - `card export`
 - `contacts list/add/import/show/verify/del`
 - `serve`, `hello`, `ping`, `capabilities`, `send`
-- `inbox list`, `outbox list`
+- `inbox list/mark-read`, `outbox list`
 - `version`
 
 ## Documentation

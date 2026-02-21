@@ -80,6 +80,14 @@ func writeInboxRecords(w io.Writer, records []aqua.InboxMessage) {
 		payloadSummary := summarizePayload(record.ContentType, record.PayloadBase64)
 		_, _ = fmt.Fprintf(w, "[%d]\n", i+1)
 		_, _ = fmt.Fprintf(w, "received_at: %s\n", record.ReceivedAt.UTC().Format(time.RFC3339))
+		status := "unread"
+		if record.Read {
+			status = "read"
+		}
+		_, _ = fmt.Fprintf(w, "status: %s\n", status)
+		if record.ReadAt != nil {
+			_, _ = fmt.Fprintf(w, "read_at: %s\n", record.ReadAt.UTC().Format(time.RFC3339))
+		}
 		_, _ = fmt.Fprintf(w, "from_peer_id: %s\n", record.FromPeerID)
 		_, _ = fmt.Fprintf(w, "topic: %s\n", record.Topic)
 		_, _ = fmt.Fprintf(w, "session_id: %s\n", record.SessionID)

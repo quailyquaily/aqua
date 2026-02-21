@@ -199,6 +199,7 @@ Behavior notes:
 
 - With no `nickname` argument, show current identity info.
 - With `nickname`, update local identity nickname, then print identity.
+- If identity is not initialized, `aqua id` auto-initializes it before showing/updating.
 
 ### Contact Cards
 
@@ -421,7 +422,7 @@ Topic list:
 Usage:
 
 ```bash
-aqua inbox list [--from-peer-id <peer_id>] [--topic <topic>] [--limit <n>] [--json]
+aqua inbox list [--from-peer-id <peer_id>] [--topic <topic>] [--limit <n>] [--unread] [--json]
 ```
 
 Flags:
@@ -429,6 +430,27 @@ Flags:
 - `--from-peer-id`: filter by sender peer ID.
 - `--topic`: filter by topic.
 - `--limit`: max records. `<= 0` means all. Default `50`.
+- `--unread`: list unread messages only.
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- `--unread` automatically marks the listed messages as read after listing.
+
+#### `aqua inbox mark-read`
+
+Usage:
+
+```bash
+aqua inbox mark-read <message_id>... [--json]
+aqua inbox mark-read --all [--from-peer-id <peer_id>] [--topic <topic>] [--json]
+```
+
+Flags:
+
+- `--all`: mark all matching unread messages as read.
+- `--from-peer-id`: filter by sender peer ID (used with `--all`).
+- `--topic`: filter by topic (used with `--all`).
 - `--json`: print structured JSON output.
 
 #### `aqua outbox list`

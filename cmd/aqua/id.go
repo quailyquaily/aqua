@@ -16,23 +16,21 @@ func newIDCmd() *cobra.Command {
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			var (
-				identity aqua.Identity
-				ok       bool
-				err      error
-			)
+			now := time.Now().UTC()
+			var identity aqua.Identity
+			var err error
 			if len(args) == 1 {
-				identity, err = svc.SetIdentityNickname(cmd.Context(), args[0], time.Now().UTC())
+				if _, _, err := svc.EnsureIdentity(cmd.Context(), now); err != nil {
+					return err
+				}
+				identity, err = svc.SetIdentityNickname(cmd.Context(), args[0], now)
 				if err != nil {
 					return err
 				}
 			} else {
-				identity, ok, err = svc.GetIdentity(cmd.Context())
+				identity, _, err = svc.EnsureIdentity(cmd.Context(), now)
 				if err != nil {
 					return err
-				}
-				if !ok {
-					return fmt.Errorf("identity not found; run `aqua init`")
 				}
 			}
 

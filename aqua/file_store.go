@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	contactsFileVersion = 1
-	dedupeFileVersion   = 1
+	contactsFileVersion       = 1
+	dedupeFileVersion         = 1
+	inboxReadStateFileVersion = 1
 )
 
 type FileStore struct {
@@ -35,6 +36,11 @@ type contactsFile struct {
 type dedupeFile struct {
 	Version int            `json:"version"`
 	Records []DedupeRecord `json:"records"`
+}
+
+type inboxReadStateFile struct {
+	Version int                  `json:"version"`
+	Read    map[string]time.Time `json:"read"`
 }
 
 func NewFileStore(root string) *FileStore {
@@ -222,6 +228,8 @@ func (s *FileStore) AppendInboxMessage(ctx context.Context, message InboxMessage
 		message.IdempotencyKey = strings.TrimSpace(message.IdempotencyKey)
 		message.SessionID = strings.TrimSpace(message.SessionID)
 		message.ReplyTo = strings.TrimSpace(message.ReplyTo)
+		message.Read = false
+		message.ReadAt = nil
 		if message.ReceivedAt.IsZero() {
 			message.ReceivedAt = time.Now().UTC()
 		}
@@ -240,6 +248,10 @@ func (s *FileStore) ListInboxMessages(ctx context.Context, fromPeerID string, to
 	if err != nil {
 		return nil, err
 	}
+	readState, err := s.loadInboxReadStateLocked()
+	if err != nil {
+		return nil, err
+	}
 	fromPeerID = strings.TrimSpace(fromPeerID)
 	topic = strings.TrimSpace(topic)
 
@@ -250,6 +262,14 @@ func (s *FileStore) ListInboxMessages(ctx context.Context, fromPeerID string, to
 		}
 		if topic != "" && strings.TrimSpace(record.Topic) != topic {
 			continue
+		}
+		messageID := strings.TrimSpace(record.MessageID)
+		record.Read = false
+		record.ReadAt = nil
+		if readAt, ok := readState[messageID]; ok {
+			readAtUTC := readAt.UTC()
+			record.Read = true
+			record.ReadAt = &readAtUTC
 		}
 		filtered = append(filtered, record)
 	}
@@ -266,6 +286,66 @@ func (s *FileStore) ListInboxMessages(ctx context.Context, fromPeerID string, to
 	out := make([]InboxMessage, len(filtered))
 	copy(out, filtered)
 	return out, nil
+}
+
+func (s *FileStore) MarkInboxMessagesRead(ctx context.Context, messageIDs []string, now time.Time) (int, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return 0, err
+	}
+	normalizedIDs := normalizeMessageIDs(messageIDs)
+	if len(normalizedIDs) == 0 {
+		return 0, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	marked := 0
+	err := s.withStateLock(ctx, func() error {
+		records, err := s.loadInboxMessagesLocked()
+		if err != nil {
+			return err
+		}
+		existing := make(map[string]bool, len(records))
+		for _, record := range records {
+			id := strings.TrimSpace(record.MessageID)
+			if id != "" {
+				existing[id] = true
+			}
+		}
+
+		readState, err := s.loadInboxReadStateLocked()
+		if err != nil {
+			return err
+		}
+
+		readAt := now.UTC()
+		if readAt.IsZero() {
+			readAt = time.Now().UTC()
+		}
+
+		changed := false
+		for _, id := range normalizedIDs {
+			if !existing[id] {
+				continue
+			}
+			if _, ok := readState[id]; ok {
+				continue
+			}
+			readState[id] = readAt
+			marked++
+			changed = true
+		}
+
+		if !changed {
+			return nil
+		}
+		return s.saveInboxReadStateLocked(readState)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return marked, nil
 }
 
 func (s *FileStore) AppendOutboxMessage(ctx context.Context, message OutboxMessage) error {
@@ -528,6 +608,45 @@ func (s *FileStore) saveDedupeRecordsLocked(records []DedupeRecord) error {
 	return s.writeJSONFileAtomic(s.dedupePath(), file, 0o600)
 }
 
+func (s *FileStore) loadInboxReadStateLocked() (map[string]time.Time, error) {
+	var file inboxReadStateFile
+	ok, err := s.readJSONFile(s.inboxReadStatePath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || len(file.Read) == 0 {
+		return map[string]time.Time{}, nil
+	}
+	out := make(map[string]time.Time, len(file.Read))
+	for messageID, readAt := range file.Read {
+		id := strings.TrimSpace(messageID)
+		if id == "" {
+			continue
+		}
+		if readAt.IsZero() {
+			continue
+		}
+		out[id] = readAt.UTC()
+	}
+	return out, nil
+}
+
+func (s *FileStore) saveInboxReadStateLocked(read map[string]time.Time) error {
+	clean := make(map[string]time.Time, len(read))
+	for messageID, readAt := range read {
+		id := strings.TrimSpace(messageID)
+		if id == "" || readAt.IsZero() {
+			continue
+		}
+		clean[id] = readAt.UTC()
+	}
+	file := inboxReadStateFile{
+		Version: inboxReadStateFileVersion,
+		Read:    clean,
+	}
+	return s.writeJSONFileAtomic(s.inboxReadStatePath(), file, 0o600)
+}
+
 func (s *FileStore) loadInboxMessagesLocked() ([]InboxMessage, error) {
 	records, ok, err := s.readInboxMessagesJSONL(s.inboxPathJSONL())
 	if err != nil {
@@ -621,6 +740,8 @@ func (s *FileStore) readInboxMessagesJSONL(path string) ([]InboxMessage, bool, e
 		}
 		message.SessionID = strings.TrimSpace(message.SessionID)
 		message.ReplyTo = strings.TrimSpace(message.ReplyTo)
+		message.Read = false
+		message.ReadAt = nil
 		records = append(records, message)
 	}
 	if err := scanner.Err(); err != nil {
@@ -709,10 +830,31 @@ func (s *FileStore) dedupePath() string {
 	return filepath.Join(s.rootPath(), "dedupe_records.json")
 }
 
+func (s *FileStore) inboxReadStatePath() string {
+	return filepath.Join(s.rootPath(), "inbox_read_state.json")
+}
+
 func (s *FileStore) inboxPathJSONL() string {
 	return filepath.Join(s.rootPath(), "inbox_messages.jsonl")
 }
 
 func (s *FileStore) outboxPathJSONL() string {
 	return filepath.Join(s.rootPath(), "outbox_messages.jsonl")
+}
+
+func normalizeMessageIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }

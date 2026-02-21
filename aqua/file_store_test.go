@@ -276,7 +276,7 @@ func TestFileStoreAppendInboxMessage_DoesNotAutoFillSessionID(t *testing.T) {
 	msg := InboxMessage{
 		MessageID:      "msg-raw-1",
 		FromPeerID:     "12D3KooWpeerZ",
-		Topic:          "agent.status.v1",
+		Topic:          "custom.note.v1",
 		ContentType:    "text/plain",
 		PayloadBase64:  "aGVsbG8",
 		IdempotencyKey: "id-1",

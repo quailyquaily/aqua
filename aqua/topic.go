@@ -4,7 +4,7 @@ import "strings"
 
 func IsDialogueTopic(topic string) bool {
 	switch strings.ToLower(strings.TrimSpace(topic)) {
-	case "share.proactive.v1", "dm.checkin.v1", "dm.reply.v1", "chat.message":
+	case "chat.message":
 		return true
 	default:
 		return false

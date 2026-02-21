@@ -5,14 +5,14 @@ import (
 )
 
 func TestValidateSessionForTopic_DialogueRequiresSessionID(t *testing.T) {
-	_, _, err := validateSessionForTopic("dm.reply.v1", "", "")
+	_, _, err := validateSessionForTopic("chat.message", "", "")
 	if err == nil {
 		t.Fatalf("expected error when dialogue topic is missing session_id")
 	}
 }
 
 func TestValidateSessionForTopic_DialogueAcceptsSessionID(t *testing.T) {
-	sessionID, replyTo, err := validateSessionForTopic("dm.reply.v1", "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456", "msg_prev")
+	sessionID, replyTo, err := validateSessionForTopic("chat.message", "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456", "msg_prev")
 	if err != nil {
 		t.Fatalf("validateSessionForTopic() error = %v", err)
 	}
@@ -25,7 +25,7 @@ func TestValidateSessionForTopic_DialogueAcceptsSessionID(t *testing.T) {
 }
 
 func TestValidateSessionForTopic_NonDialogueAllowsMissingSessionID(t *testing.T) {
-	sessionID, replyTo, err := validateSessionForTopic("agent.status.v1", "", "")
+	sessionID, replyTo, err := validateSessionForTopic("custom.note.v1", "", "")
 	if err != nil {
 		t.Fatalf("validateSessionForTopic() error = %v", err)
 	}
@@ -38,14 +38,14 @@ func TestValidateSessionForTopic_NonDialogueAllowsMissingSessionID(t *testing.T)
 }
 
 func TestValidateSessionForTopic_RejectsNonUUIDv7SessionID(t *testing.T) {
-	_, _, err := validateSessionForTopic("dm.reply.v1", "peerA::dialogue.v1", "")
+	_, _, err := validateSessionForTopic("chat.message", "peerA::dialogue.v1", "")
 	if err == nil {
 		t.Fatalf("expected error for non-uuid_v7 session_id")
 	}
 }
 
 func TestValidateSessionForTopic_TrimReplyTo(t *testing.T) {
-	_, replyTo, err := validateSessionForTopic("agent.status.v1", "", "  msg_prev  ")
+	_, replyTo, err := validateSessionForTopic("custom.note.v1", "", "  msg_prev  ")
 	if err != nil {
 		t.Fatalf("validateSessionForTopic() error = %v", err)
 	}

@@ -796,22 +796,7 @@ func newPushCmd() *cobra.Command {
 			resolvedReplyTo := strings.TrimSpace(replyTo)
 
 			messageID := uuid.NewString()
-			var payloadBytes []byte
-			lowerContentType := strings.ToLower(contentType)
-			if strings.HasPrefix(lowerContentType, "application/json") {
-				payload := map[string]any{
-					"message_id": messageID,
-					"text":       resolvedMessage,
-					"sent_at":    time.Now().UTC().Format(time.RFC3339),
-				}
-				encodedPayload, err := json.Marshal(payload)
-				if err != nil {
-					return err
-				}
-				payloadBytes = encodedPayload
-			} else {
-				payloadBytes = []byte(resolvedMessage)
-			}
+			payloadBytes := []byte(resolvedMessage)
 			idempotencyKey = strings.TrimSpace(idempotencyKey)
 			if idempotencyKey == "" {
 				idempotencyKey = messageEnvelopeKey(messageID)
@@ -856,10 +841,10 @@ func newPushCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&addresses, "address", nil, "Override dial address (repeatable)")
 	cmd.Flags().StringVar(&topic, "topic", "chat.message", "Data topic")
 	cmd.Flags().StringVar(&message, "message", "", "Message payload (optional; can also be provided as positional argument)")
-	cmd.Flags().StringVar(&contentType, "content-type", "application/json", "Content type")
+	cmd.Flags().StringVar(&contentType, "content-type", "text/plain", "Content type")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Idempotency key (default: derived from message_id)")
-	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session id for JSON payload (UUIDv7, auto-generated when omitted)")
-	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Reply target message id for JSON payload")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session id (UUIDv7, auto-generated when omitted)")
+	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Reply target message id")
 	cmd.Flags().BoolVar(&notify, "notify", false, "Send as JSON-RPC notification (no response expected)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
@@ -967,6 +952,8 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(json): %s\n", string(pretty))
 			return
 		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(text): %s\n", string(event.PayloadBytes))
+		return
 	}
 	if strings.HasPrefix(strings.ToLower(event.ContentType), "text/") {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(text): %s\n", string(event.PayloadBytes))
@@ -984,14 +971,7 @@ func summarizePayload(contentType string, payloadBase64 string) string {
 	if strings.HasPrefix(lowerType, "application/json") {
 		var obj any
 		if err := json.Unmarshal(data, &obj); err != nil {
-			return "<invalid-json>"
-		}
-		if isAquaEnvelopeJSON(obj) {
-			text, err := json.MarshalIndent(obj, "", "  ")
-			if err != nil {
-				return "<json-encode-error>"
-			}
-			return string(text)
+			return string(data)
 		}
 		text, err := json.Marshal(obj)
 		if err != nil {
@@ -1060,23 +1040,6 @@ func indentBlock(text string, prefix string) string {
 		lines[i] = prefix + lines[i]
 	}
 	return strings.Join(lines, "\n")
-}
-
-func isAquaEnvelopeJSON(v any) bool {
-	obj, ok := v.(map[string]any)
-	if !ok {
-		return false
-	}
-	if _, ok := obj["message_id"].(string); !ok {
-		return false
-	}
-	if _, ok := obj["text"].(string); !ok {
-		return false
-	}
-	if _, ok := obj["sent_at"].(string); !ok {
-		return false
-	}
-	return true
 }
 
 func resolveCardExportAddressesForCommand(

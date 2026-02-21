@@ -39,8 +39,30 @@ aqua serve
 aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
 
 # 4) Handshake and send
-aqua hello <peer_id>
 aqua push <peer_id> "hello"
+```
+
+## Message Topics
+
+Aqua `push` uses `--topic` to describe message semantics.
+Message content can be passed either by positional argument or `--message`.
+
+Built-in dialogue topics (session-based):
+
+- `chat.message`: default chat message topic.
+
+For dialogue topics, `session_id` is required. If you omit `--session-id`, Aqua auto-generates a UUIDv7.
+
+Non-dialogue topics:
+
+- Any non-empty custom topic string is allowed.
+- `session_id` is optional for non-dialogue topics.
+
+Examples:
+
+```bash
+# default dialogue topic
+aqua push <peer_id> "Hi"
 ```
 
 ## Data Directory

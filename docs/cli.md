@@ -395,7 +395,7 @@ Flags:
 - `--topic`: message topic. Default `chat.message`.
 - `[message]`: positional message payload.
 - `--message`: optional message payload flag (use this or positional argument).
-- `--content-type`: default `application/json`.
+- `--content-type`: default `text/plain`.
 - `--idempotency-key`: default derived from generated message ID.
 - `--session-id`: optional UUIDv7. If omitted, Aqua auto-generates one.
 - `--reply-to`: reply target message ID.
@@ -406,8 +406,13 @@ Behavior notes:
 
 - If `--session-id` is provided, it must be UUIDv7.
 - Message can be provided either as positional argument or via `--message` (not both).
-- Dialogue topics (for example `dm.reply.v1`) require a valid session ID; omitted session ID is auto-generated.
-- For `application/json`, Aqua wraps text into JSON payload fields (`message_id`, `text`, `sent_at`).
+- Dialogue topic (`chat.message`) requires a valid session ID; omitted session ID is auto-generated.
+- Aqua sends `--message` content as payload bytes directly (no extra JSON envelope).
+
+Topic list:
+
+- Dialogue topic (session required): `chat.message`.
+- Non-dialogue topics: any non-empty custom topic string (session optional).
 
 ### Audit and Mailboxes
 

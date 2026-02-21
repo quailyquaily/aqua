@@ -12,6 +12,29 @@ Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`
 
 ## Install
 
+Option A: download a prebuilt binary from GitHub Releases (recommended for production use):
+
+```bash
+curl -fsSL -o /tmp/install-aqua.sh https://raw.githubusercontent.com/quailyquaily/aqua/refs/heads/master/scripts/install-release.sh
+sudo bash /tmp/install-aqua.sh
+```
+
+The installer supports:
+
+```bash
+bash install-release.sh <version-tag>
+INSTALL_DIR="$HOME/.local/bin" bash install-release.sh <version-tag>
+```
+
+If you already cloned this repo, you can run:
+
+```bash
+./scripts/install-release.sh
+INSTALL_DIR="$HOME/.local/bin" ./scripts/install-release.sh v0.1.0
+```
+
+Option B: install from source with Go:
+
 ```bash
 go install github.com/quailyquaily/aqua/cmd/aqua@latest
 # or pin to a specific release
@@ -20,10 +43,36 @@ go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.1
 
 Make sure your `$GOBIN` (or `$GOPATH/bin`) is in `PATH`.
 
+GitHub Releases:
+`https://github.com/quailyquaily/aqua/releases`
+
 ## Build
 
 ```bash
 go build -o ./bin/aqua ./cmd/aqua
+```
+
+## Release Automation
+
+`aqua` uses GoReleaser in GitHub Actions:
+
+- Config: `.goreleaser.yaml`
+- Workflow: `.github/workflows/release.yml`
+- Trigger (release): push tag matching `v*` (for example `v0.1.0`)
+- Trigger (snapshot): manual `workflow_dispatch`
+
+Release artifacts are built for:
+
+- `linux/darwin/windows`
+- `amd64/arm64`
+
+Version metadata is injected into `aqua version` via ldflags (`version`, `commit`, `date`).
+
+Tag release example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 ## Quick Start

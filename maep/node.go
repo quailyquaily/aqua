@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	libp2p "github.com/libp2p/go-libp2p"
+	ic "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -86,19 +87,24 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 	if err != nil {
 		return nil, err
 	}
+	explicitListenProvided := len(normalizeAddresses(opts.ListenAddrs)) > 0
 
 	options := normalizeNodeOptions(opts)
 
-	hostOpts := []libp2p.Option{libp2p.Identity(priv)}
-	if options.DialOnly {
-		hostOpts = append(hostOpts, libp2p.NoListenAddrs)
-	} else {
-		hostOpts = append(hostOpts, libp2p.ListenAddrStrings(options.ListenAddrs...))
-	}
-
-	h, err := libp2p.New(hostOpts...)
+	h, err := newLibp2pHost(priv, options.DialOnly, options.ListenAddrs)
 	if err != nil {
-		return nil, fmt.Errorf("create libp2p host: %w", err)
+		if !options.DialOnly && !explicitListenProvided {
+			fallbackListenAddrs := defaultFallbackListenAddrs()
+			fallbackHost, fallbackErr := newLibp2pHost(priv, false, fallbackListenAddrs)
+			if fallbackErr == nil {
+				h = fallbackHost
+				options.ListenAddrs = fallbackListenAddrs
+			} else {
+				return nil, fmt.Errorf("create libp2p host: default listen failed (%v); fallback listen failed (%w)", err, fallbackErr)
+			}
+		} else {
+			return nil, fmt.Errorf("create libp2p host: %w", err)
+		}
 	}
 
 	if h.ID().String() != identity.PeerID {
@@ -177,6 +183,34 @@ func (n *Node) GetCapabilities(ctx context.Context, peerID string, addresses []s
 	return out, nil
 }
 
+func (n *Node) GetContactCard(ctx context.Context, peerID string, addresses []string) ([]byte, error) {
+	expectedPeerID, dialAddresses, err := resolveExplicitDialTarget(peerID, addresses)
+	if err != nil {
+		return nil, err
+	}
+	resultRaw, err := n.callRPCResolved(
+		ctx,
+		expectedPeerID,
+		dialAddresses,
+		"agent.card.get",
+		rpcCardGetParams{Addresses: dialAddresses},
+		false,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var result rpcCardGetResult
+	if err := decodeRPCJSON(resultRaw, &result); err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(result.ContactCardJSON)
+	if trimmed == "" {
+		return nil, WrapProtocolError(ErrInvalidParams, "empty contact_card_json")
+	}
+	return []byte(trimmed), nil
+}
+
 func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, req DataPushRequest, notification bool) (DataPushResult, error) {
 	req.Topic = strings.TrimSpace(req.Topic)
 	req.ContentType = strings.TrimSpace(req.ContentType)
@@ -243,7 +277,10 @@ func (n *Node) DialHello(ctx context.Context, peerID string, addresses []string)
 	if err != nil {
 		return HelloResult{}, err
 	}
+	return n.dialHelloResolved(ctx, expectedPeerID, dialAddresses)
+}
 
+func (n *Node) dialHelloResolved(ctx context.Context, expectedPeerID peer.ID, dialAddresses []string) (HelloResult, error) {
 	timeoutCtx, cancel := withTimeoutIfNeeded(ctx, n.opts.HelloTimeout)
 	defer cancel()
 
@@ -313,9 +350,8 @@ func (n *Node) callRPC(ctx context.Context, peerID string, addresses []string, m
 }
 
 func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dialAddresses []string, method string, params any, notification bool, retriedUnsupported bool) (json.RawMessage, error) {
-
-	if !n.hasFreshSession(expectedPeerID.String()) {
-		if _, err := n.DialHello(ctx, expectedPeerID.String(), dialAddresses); err != nil {
+	if rpcMethodRequiresSession(method) && !n.hasFreshSession(expectedPeerID.String()) {
+		if _, err := n.dialHelloResolved(ctx, expectedPeerID, dialAddresses); err != nil {
 			return nil, err
 		}
 	}
@@ -381,8 +417,8 @@ func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dial
 	}
 	if strings.TrimSpace(symbol) != "" {
 		// Handles session drift (for example remote node restart) by renegotiating once.
-		if shouldRetryAfterUnsupported(symbol, retriedUnsupported) {
-			if _, err := n.DialHello(ctx, expectedPeerID.String(), dialAddresses); err != nil {
+		if rpcMethodRequiresSession(method) && shouldRetryAfterUnsupported(symbol, retriedUnsupported) {
+			if _, err := n.dialHelloResolved(ctx, expectedPeerID, dialAddresses); err != nil {
 				return nil, err
 			}
 			return n.callRPCResolved(ctx, expectedPeerID, dialAddresses, method, params, notification, true)
@@ -397,6 +433,24 @@ func shouldRetryAfterUnsupported(symbol string, retried bool) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(symbol), ErrUnsupportedProtocolSymbol)
+}
+
+func rpcMethodRequiresSession(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "agent.card.get":
+		return false
+	default:
+		return true
+	}
+}
+
+func rpcMethodRequiresAuthorizedPeer(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "agent.card.get":
+		return false
+	default:
+		return true
+	}
 }
 
 func (n *Node) handleHelloStream(stream network.Stream) {
@@ -496,26 +550,28 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 		return
 	}
 
-	if !n.hasFreshSession(remotePeerID) {
+	if !isAllowedMethod(req.Method) {
+		if req.HasID {
+			_, _ = n.writeRPCError(stream, req.ID, ErrMethodNotAllowedSymbol, "method="+req.Method)
+		}
+		return
+	}
+
+	if rpcMethodRequiresSession(req.Method) && !n.hasFreshSession(remotePeerID) {
 		if req.HasID {
 			_, _ = n.writeRPCError(stream, req.ID, ErrUnsupportedProtocolSymbol, "hello negotiation required before rpc")
 		}
 		return
 	}
 
-	if _, err := n.ensurePeerAllowed(context.Background(), remotePeerID); err != nil {
-		if req.HasID {
-			_, _ = n.writeRPCError(stream, req.ID, ErrUnauthorizedSymbol, err.Error())
+	if rpcMethodRequiresAuthorizedPeer(req.Method) {
+		if _, err := n.ensurePeerAllowed(context.Background(), remotePeerID); err != nil {
+			if req.HasID {
+				_, _ = n.writeRPCError(stream, req.ID, ErrUnauthorizedSymbol, err.Error())
+			}
+			_ = stream.Conn().Close()
+			return
 		}
-		_ = stream.Conn().Close()
-		return
-	}
-
-	if !isAllowedMethod(req.Method) {
-		if req.HasID {
-			_, _ = n.writeRPCError(stream, req.ID, ErrMethodNotAllowedSymbol, "method="+req.Method)
-		}
-		return
 	}
 
 	result, symbol, details := n.handleRPCMethod(remotePeerID, req)
@@ -547,6 +603,31 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 			"capabilities":    []string{CapabilityDataPushV1},
 			"allowed_methods": append([]string(nil), allowedMethodsV1...),
 		}, "", ""
+	case "agent.card.get":
+		var params rpcCardGetParams
+		if err := decodeRPCParams(req.Params, &params); err != nil {
+			return nil, ErrInvalidParamsSymbol, err.Error()
+		}
+		addresses := normalizeAddresses(params.Addresses)
+		if len(addresses) == 0 {
+			return nil, ErrInvalidParamsSymbol, "addresses is required"
+		}
+		_, rawCard, err := n.svc.ExportContactCard(
+			context.Background(),
+			addresses,
+			ProtocolVersionV1,
+			ProtocolVersionV1,
+			time.Now().UTC(),
+			nil,
+		)
+		if err != nil {
+			symbol := SymbolOf(err)
+			if strings.TrimSpace(symbol) == "" {
+				symbol = ErrInvalidParamsSymbol
+			}
+			return nil, symbol, err.Error()
+		}
+		return rpcCardGetResult{ContactCardJSON: strings.TrimSpace(string(rawCard))}, "", ""
 	case "agent.data.push":
 		var params rpcDataPushParams
 		if err := decodeRPCParams(req.Params, &params); err != nil {
@@ -724,6 +805,29 @@ func (n *Node) resolveDialTarget(ctx context.Context, peerID string, addresses [
 		}
 	}
 	return expectedPeerID, dialAddresses, contact, nil
+}
+
+func resolveExplicitDialTarget(peerID string, addresses []string) (peer.ID, []string, error) {
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return "", nil, WrapProtocolError(ErrInvalidParams, "peer_id is required")
+	}
+
+	expectedPeerID, err := peer.Decode(peerID)
+	if err != nil {
+		return "", nil, WrapProtocolError(ErrInvalidParams, "invalid peer_id: %v", err)
+	}
+
+	dialAddresses := normalizeAddresses(addresses)
+	if len(dialAddresses) == 0 {
+		return "", nil, WrapProtocolError(ErrInvalidParams, "no dial addresses available")
+	}
+	for _, addr := range dialAddresses {
+		if err := validateAddressMatchesPeerID(addr, expectedPeerID); err != nil {
+			return "", nil, err
+		}
+	}
+	return expectedPeerID, dialAddresses, nil
 }
 
 func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []string) error {
@@ -1002,13 +1106,34 @@ func normalizeNodeOptions(opts NodeOptions) NodeOptions {
 	if !opts.DialOnly {
 		opts.ListenAddrs = normalizeAddresses(opts.ListenAddrs)
 		if len(opts.ListenAddrs) == 0 {
-			opts.ListenAddrs = []string{
-				"/ip4/0.0.0.0/udp/0/quic-v1",
-				"/ip4/0.0.0.0/tcp/0",
-			}
+			opts.ListenAddrs = defaultPreferredListenAddrs()
 		}
 	}
 	return opts
+}
+
+func defaultPreferredListenAddrs() []string {
+	return []string{
+		"/ip4/0.0.0.0/udp/6371/quic-v1",
+		"/ip4/0.0.0.0/tcp/6371",
+	}
+}
+
+func defaultFallbackListenAddrs() []string {
+	return []string{
+		"/ip4/0.0.0.0/udp/0/quic-v1",
+		"/ip4/0.0.0.0/tcp/0",
+	}
+}
+
+func newLibp2pHost(priv ic.PrivKey, dialOnly bool, listenAddrs []string) (host.Host, error) {
+	hostOpts := []libp2p.Option{libp2p.Identity(priv)}
+	if dialOnly {
+		hostOpts = append(hostOpts, libp2p.NoListenAddrs)
+	} else {
+		hostOpts = append(hostOpts, libp2p.ListenAddrStrings(listenAddrs...))
+	}
+	return libp2p.New(hostOpts...)
 }
 
 func withTimeoutIfNeeded(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

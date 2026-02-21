@@ -1,82 +1,437 @@
 # Aqua CLI Guide
 
-## Initialization
+## Quick Start
+
+This section is for quickly experiencing Aqua on two computers (Machine A and Machine B).
+
+### 1) Initialize identity on both machines
+
+Machine A:
 
 ```bash
 aqua init
 aqua id
 ```
 
-## Contact Cards
+Machine B:
 
-Export (explicit addresses):
+```bash
+aqua init
+aqua id
+```
+
+Assume:
+
+- `<A_PEER_ID>` is Machine A peer ID
+- `<B_PEER_ID>` is Machine B peer ID
+
+### 2) Start node on both machines
+
+Machine A:
+
+```bash
+aqua serve
+```
+
+Machine B:
+
+```bash
+aqua serve
+```
+
+From each `serve` output, copy one printed `address: ...` line:
+
+- `<A_ADDR>` from Machine A (ends with `/p2p/<A_PEER_ID>`)
+- `<B_ADDR>` from Machine B (ends with `/p2p/<B_PEER_ID>`)
+
+### 3) Add each other as contacts (no card exchange)
+
+Machine A:
+
+```bash
+aqua contacts add "<B_ADDR>" --verify
+```
+
+Machine B:
+
+```bash
+aqua contacts add "<A_ADDR>" --verify
+```
+
+### 4) Handshake and send a message
+
+Machine A:
+
+```bash
+aqua hello <B_PEER_ID>
+aqua push <B_PEER_ID> "hello from A"
+```
+
+You should see inbound event output on Machine B (`serve` process).
+
+### 5) Inspect inbox/outbox
+
+Machine B:
+
+```bash
+aqua inbox list --limit 10
+```
+
+Machine A:
+
+```bash
+aqua outbox list --limit 10
+```
+
+## Quick Start (With Relay, After Relay Support)
+
+This section assumes relay-related flags are available in a future Aqua release.
+
+### 1) Prepare identities on both machines
+
+Machine A:
+
+```bash
+aqua init
+aqua id
+```
+
+Machine B:
+
+```bash
+aqua init
+aqua id
+```
+
+Assume:
+
+- `<A_PEER_ID>` is Machine A peer ID
+- `<B_PEER_ID>` is Machine B peer ID
+- `<RELAY_ADDR>` is relay node multiaddr
+
+### 2) Start both nodes with relay enabled
+
+Machine A:
+
+```bash
+aqua serve \
+  --relay "<RELAY_ADDR>" \
+  --relay-mode auto
+```
+
+Machine B:
+
+```bash
+aqua serve \
+  --relay "<RELAY_ADDR>" \
+  --relay-mode auto
+```
+
+From each `serve` output, copy one printed `address: ...` line:
+
+- `<A_ADDR>` from Machine A (ends with `/p2p/<A_PEER_ID>`)
+- `<B_ADDR>` from Machine B (ends with `/p2p/<B_PEER_ID>`)
+
+### 3) Add each other as contacts (relay-aware path)
+
+Machine A:
+
+```bash
+aqua contacts add "<B_ADDR>" --verify
+```
+
+Machine B:
+
+```bash
+aqua contacts add "<A_ADDR>" --verify
+```
+
+### 4) Connect and send without explicit address
+
+Machine A:
+
+```bash
+aqua hello <B_PEER_ID>
+aqua push <B_PEER_ID> "hello with relay fallback"
+```
+
+Expected behavior:
+
+- Aqua tries direct addresses first.
+- If direct dial fails, Aqua retries relay addresses automatically.
+
+## Detailed Parameters
+
+### Global
+
+- `--dir <path>`: MAEP state directory override.
+- `AQUA_MAEP_DIR`: used when `--dir` is not provided.
+
+### Identity
+
+#### `aqua init`
+
+Usage:
+
+```bash
+aqua init [--json]
+```
+
+Flags:
+
+- `--json`: print structured JSON output.
+
+#### `aqua id`
+
+Usage:
+
+```bash
+aqua id [--json]
+```
+
+Flags:
+
+- `--json`: print structured JSON output.
+
+### Contact Cards
+
+#### `aqua card export`
+
+Usage:
 
 ```bash
 aqua card export \
-  --address "/ip4/1.2.3.4/tcp/4001/p2p/<your_peer_id>" \
-  --out ./my.card.json
+  [--address <multiaddr> ...] \
+  [--listen <multiaddr> ...] \
+  [--out <file>] \
+  [--min-protocol <int>] \
+  [--max-protocol <int>] \
+  [--expires-in <duration>]
 ```
 
-Import:
+Flags:
+
+- `--address` (repeatable): contact card dial addresses. Must end with `/p2p/<peer_id>`.
+- `--listen` (repeatable): fallback source when `--address` is empty.
+- `--out`: output file path. Default is stdout.
+- `--min-protocol`: minimum supported protocol version. Default `1`.
+- `--max-protocol`: maximum supported protocol version. Default `1`.
+- `--expires-in`: relative expiration like `720h`. `0` means no expiry.
+
+Behavior notes:
+
+- If `--address` is present, it is used directly.
+- If `--address` is empty, addresses are derived from `--listen`.
+- In interactive terminals, if multiple valid derived addresses exist, Aqua prompts for selection.
+- In non-interactive mode with ambiguous addresses, Aqua returns an error.
+
+### Contacts
+
+#### `aqua contacts list`
+
+Usage:
 
 ```bash
-aqua contacts import ./peer.card.json
+aqua contacts list [--json]
 ```
 
-View and verify:
+Flags:
+
+- `--json`: print structured JSON output.
+
+#### `aqua contacts import`
+
+Usage:
 
 ```bash
-aqua contacts list
-aqua contacts show <peer_id>
+aqua contacts import <contact_card.json|-> [--display-name <name>]
+```
+
+Flags:
+
+- `--display-name`: optional local alias for the contact.
+
+#### `aqua contacts add`
+
+Usage:
+
+```bash
+aqua contacts add <address> [--display-name <name>] [--verify] [--json]
+```
+
+Flags:
+
+- `--display-name`: optional local alias for the contact.
+- `--verify`: mark imported contact as verified immediately.
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- `<address>` must end with `/p2p/<peer_id>`.
+- Requires peer support for RPC method `agent.card.get`.
+- Does not require prior contact import for the target peer.
+- Without `--verify`, imported contact starts as unverified trust state (`tofu` by default).
+
+#### `aqua contacts del`
+
+Usage:
+
+```bash
+aqua contacts del <peer_id>
+```
+
+#### `aqua contacts show`
+
+Usage:
+
+```bash
+aqua contacts show <peer_id> [--json]
+```
+
+Flags:
+
+- `--json`: print structured JSON output.
+
+#### `aqua contacts verify`
+
+Usage:
+
+```bash
 aqua contacts verify <peer_id>
 ```
 
-## Run Node
+### Node Runtime
+
+#### `aqua serve`
+
+Usage:
 
 ```bash
-aqua serve --listen /ip4/0.0.0.0/tcp/4001
+aqua serve [--listen <multiaddr> ...] [--json]
 ```
 
-JSON output:
+Flags:
+
+- `--listen` (repeatable): listen multiaddrs.
+  - default preferred: `/ip4/0.0.0.0/udp/6371/quic-v1`
+  - default preferred: `/ip4/0.0.0.0/tcp/6371`
+  - fallback on bind failure: random ports (`/udp/0` and `/tcp/0`)
+- `--json`: print ready/event output as JSON.
+
+### Dialing Commands
+
+`hello`, `ping`, and `capabilities` share the same address behavior:
+
+- `--address` is optional and repeatable.
+- If omitted, Aqua uses addresses from the contact card for `<peer_id>`.
+
+#### `aqua hello`
+
+Usage:
 
 ```bash
-aqua serve --json
+aqua hello <peer_id> [--address <multiaddr> ...] [--json]
 ```
 
-## Connect and Negotiate
+#### `aqua ping`
+
+Usage:
 
 ```bash
-aqua hello <peer_id> --address /ip4/1.2.3.4/tcp/4001/p2p/<peer_id>
-aqua ping <peer_id>
-aqua capabilities <peer_id>
+aqua ping <peer_id> [--address <multiaddr> ...] [--json]
 ```
 
-## Push Messages
+#### `aqua capabilities`
+
+Usage:
+
+```bash
+aqua capabilities <peer_id> [--address <multiaddr> ...] [--json]
+```
+
+### Push
+
+#### `aqua push`
+
+Usage:
 
 ```bash
 aqua push <peer_id> \
-  --topic chat.message \
-  --text "hello"
+  [message] \
+  [--address <multiaddr> ...] \
+  [--topic <topic>] \
+  [--message <message>] \
+  [--content-type <type>] \
+  [--idempotency-key <key>] \
+  [--session-id <uuid_v7>] \
+  [--reply-to <message_id>] \
+  [--notify] \
+  [--json]
 ```
 
-Conversation topics (for example `dm.reply.v1`) must include `--session-id`, which must be UUIDv7:
+Flags:
+
+- `--address` (repeatable): optional dial override.
+- `--topic`: message topic. Default `chat.message`.
+- `[message]`: positional message payload.
+- `--message`: optional message payload flag (use this or positional argument).
+- `--content-type`: default `application/json`.
+- `--idempotency-key`: default derived from generated message ID.
+- `--session-id`: optional UUIDv7. If omitted, Aqua auto-generates one.
+- `--reply-to`: reply target message ID.
+- `--notify`: send as JSON-RPC notification (no response expected).
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- If `--session-id` is provided, it must be UUIDv7.
+- Message can be provided either as positional argument or via `--message` (not both).
+- Dialogue topics (for example `dm.reply.v1`) require a valid session ID; omitted session ID is auto-generated.
+- For `application/json`, Aqua wraps text into JSON payload fields (`message_id`, `text`, `sent_at`).
+
+### Audit and Mailboxes
+
+#### `aqua audit list`
+
+Usage:
 
 ```bash
-aqua push <peer_id> \
-  --topic dm.reply.v1 \
-  --session-id 0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456 \
-  --text "follow up"
+aqua audit list [--peer-id <peer_id>] [--action <symbol>] [--limit <n>] [--json]
 ```
 
-## Audit and Mailboxes
+Flags:
+
+- `--peer-id`: filter by peer ID.
+- `--action`: filter by audit action symbol.
+- `--limit`: max records. `<= 0` means all. Default `100`.
+- `--json`: print structured JSON output.
+
+#### `aqua inbox list`
+
+Usage:
 
 ```bash
-aqua audit list --limit 100
-aqua inbox list --limit 50
-aqua outbox list --limit 50
+aqua inbox list [--from-peer-id <peer_id>] [--topic <topic>] [--limit <n>] [--json]
 ```
 
-## Directory and Environment Variables
+Flags:
 
-- `--dir <path>`: set MAEP data directory
-- `AQUA_MAEP_DIR`: override default data directory when `--dir` is not provided
+- `--from-peer-id`: filter by sender peer ID.
+- `--topic`: filter by topic.
+- `--limit`: max records. `<= 0` means all. Default `50`.
+- `--json`: print structured JSON output.
+
+#### `aqua outbox list`
+
+Usage:
+
+```bash
+aqua outbox list [--to-peer-id <peer_id>] [--topic <topic>] [--limit <n>] [--json]
+```
+
+Flags:
+
+- `--to-peer-id`: filter by destination peer ID.
+- `--topic`: filter by topic.
+- `--limit`: max records. `<= 0` means all. Default `50`.
+- `--json`: print structured JSON output.

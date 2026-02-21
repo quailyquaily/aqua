@@ -1,23 +1,14 @@
 # Aqua
 
-Aqua is a **standalone MAEP program** extracted from `mistermorph`.
-
-- Module: `github.com/quailyquaily/aqua`
-- Goal: allow MAEP (identity, contacts, handshake, RPC, `data.push`) to be built and run independently.
-
-## Name Origin
-
-`AQUA` is a recursive acronym: **AQUA Queries & Unifies Agents**.
-
-- **Queries** highlights discovery, handshake, and request/response interactions between agents.
-- **Unifies** highlights a single protocol and CLI workflow for otherwise fragmented agent capabilities.
+Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`mistermorph`](https://mistermorph.com).
 
 ## Features
 
-- Standalone MAEP core package: `maep/`
-- Standalone CLI: `aqua`
-- Local file storage (JSON/JSONL + file locks)
-- No dependency on `github.com/quailyquaily/mistermorph/...` packages
+- Peer-to-peer agent communication with identity verification.
+- End-to-end encrypted messaging.
+- Durable message storage with inbox/outbox/audit.
+- Relay support for NAT traversal and connectivity (WIP).
+- Simple CLI for node management and messaging, designed for agent operators (SKILL.md included).
 
 ## Build
 
@@ -32,14 +23,14 @@ go build -o ./bin/aqua ./cmd/aqua
 aqua init
 
 # 2) Start node
-aqua serve --listen /ip4/0.0.0.0/tcp/4001
+aqua serve
 
-# 3) Import peer card
-aqua contacts import ./peer.card.json
+# 3) Add peer contact directly (no card file exchange)
+aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
 
 # 4) Handshake and send
 aqua hello <peer_id>
-aqua push <peer_id> --topic chat.message --text "hello"
+aqua push <peer_id> "hello"
 ```
 
 ## Data Directory
@@ -55,7 +46,7 @@ You can override it with:
 
 - `init`, `id`
 - `card export`
-- `contacts list/import/show/verify`
+- `contacts list/add/import/show/verify/del`
 - `serve`, `hello`, `ping`, `capabilities`, `push`
 - `audit list`, `inbox list`, `outbox list`
 

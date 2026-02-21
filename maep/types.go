@@ -169,6 +169,7 @@ const (
 	AuditActionContactImportCreated  = "contact.import.created"
 	AuditActionContactImportUpdated  = "contact.import.updated"
 	AuditActionContactImportConflict = "contact.import.conflict"
+	AuditActionContactDeleted        = "contact.deleted"
 	AuditActionTrustStateChanged     = "contact.trust_state.changed"
 )
 

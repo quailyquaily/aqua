@@ -12,6 +12,7 @@ type Store interface {
 	GetContactByPeerID(ctx context.Context, peerID string) (Contact, bool, error)
 	GetContactByNodeUUID(ctx context.Context, nodeUUID string) (Contact, bool, error)
 	PutContact(ctx context.Context, contact Contact) error
+	DeleteContactByPeerID(ctx context.Context, peerID string) (bool, error)
 	ListContacts(ctx context.Context) ([]Contact, error)
 	AppendAuditEvent(ctx context.Context, event AuditEvent) error
 	ListAuditEvents(ctx context.Context, peerID string, action string, limit int) ([]AuditEvent, error)

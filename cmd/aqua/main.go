@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/quailyquaily/aqua/maep"
 	"github.com/spf13/cobra"
@@ -217,6 +218,8 @@ func newContactsCmd() *cobra.Command {
 		Short: "Manage MAEP contacts",
 	}
 	cmd.AddCommand(newContactsListCmd())
+	cmd.AddCommand(newContactsAddCmd())
+	cmd.AddCommand(newContactsDelCmd())
 	cmd.AddCommand(newContactsImportCmd())
 	cmd.AddCommand(newContactsShowCmd())
 	cmd.AddCommand(newContactsVerifyCmd())
@@ -291,6 +294,111 @@ func newContactsImportCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&displayName, "display-name", "", "Display name override for this contact")
+	return cmd
+}
+
+func newContactsAddCmd() *cobra.Command {
+	var displayName string
+	var verify bool
+	var outputJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "add <address>",
+		Short: "Fetch and import a contact card from a peer",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dialAddress := strings.TrimSpace(args[0])
+			peerID, err := extractPeerIDFromDialAddress(dialAddress)
+			if err != nil {
+				return err
+			}
+
+			node, err := newDialNode(cmd)
+			if err != nil {
+				return err
+			}
+			defer node.Close()
+
+			rawCard, err := node.GetContactCard(cmd.Context(), peerID, []string{dialAddress})
+			if err != nil {
+				symbol := maep.SymbolOf(err)
+				if symbol != "" {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
+				}
+				return err
+			}
+
+			svc := serviceFromCmd(cmd)
+			result, err := svc.ImportContactCard(cmd.Context(), rawCard, displayName, time.Now().UTC())
+			if err != nil {
+				symbol := maep.SymbolOf(err)
+				if symbol != "" {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
+				}
+				return err
+			}
+
+			status := "updated"
+			if result.Created {
+				status = "created"
+			}
+			contact := result.Contact
+			if verify {
+				verifiedContact, err := svc.MarkContactVerified(cmd.Context(), contact.PeerID, time.Now().UTC())
+				if err != nil {
+					symbol := maep.SymbolOf(err)
+					if symbol != "" {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
+					}
+					return err
+				}
+				contact = verifiedContact
+			}
+
+			fingerprint, _ := maep.FingerprintGrouped(contact.IdentityPubEd25519)
+			if outputJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"status":      status,
+					"peer_id":     contact.PeerID,
+					"node_uuid":   contact.NodeUUID,
+					"trust_state": contact.TrustState,
+					"verified":    verify,
+					"fingerprint": fingerprint,
+				})
+			}
+
+			_, _ = fmt.Fprintf(
+				cmd.OutOrStdout(),
+				"status: %s\npeer_id: %s\nnode_uuid: %s\ntrust_state: %s\nfingerprint: %s\n",
+				status,
+				contact.PeerID,
+				contact.NodeUUID,
+				contact.TrustState,
+				fingerprint,
+			)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&displayName, "display-name", "", "Display name override for this contact")
+	cmd.Flags().BoolVar(&verify, "verify", false, "Mark imported contact as verified")
+	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
+	return cmd
+}
+
+func newContactsDelCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "del <peer_id>",
+		Short: "Delete a contact",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc := serviceFromCmd(cmd)
+			if err := svc.DeleteContact(cmd.Context(), args[0], time.Now().UTC()); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", strings.TrimSpace(args[0]))
+			return nil
+		},
+	}
 	return cmd
 }
 
@@ -542,7 +650,7 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default: /ip4/0.0.0.0/udp/0/quic-v1 and /ip4/0.0.0.0/tcp/0")
+	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default tries /ip4/0.0.0.0/udp/6371/quic-v1 and /ip4/0.0.0.0/tcp/6371, then falls back to random ports")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	return cmd
 }
@@ -639,7 +747,7 @@ func newCapabilitiesCmd() *cobra.Command {
 func newPushCmd() *cobra.Command {
 	var addresses []string
 	var topic string
-	var text string
+	var message string
 	var contentType string
 	var idempotencyKey string
 	var sessionID string
@@ -648,13 +756,13 @@ func newPushCmd() *cobra.Command {
 	var outputJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "push <peer_id>",
+		Use:   "push <peer_id> [message]",
 		Short: "Send agent.data.push to a contact",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			text = strings.TrimSpace(text)
-			if text == "" {
-				return fmt.Errorf("--text is required")
+			resolvedMessage, err := resolvePushMessage(message, args)
+			if err != nil {
+				return err
 			}
 			topic = strings.TrimSpace(topic)
 			if topic == "" {
@@ -664,17 +772,11 @@ func newPushCmd() *cobra.Command {
 			if contentType == "" {
 				contentType = "application/json"
 			}
-			resolvedSessionID := strings.TrimSpace(sessionID)
+			resolvedSessionID, err := resolveOrGenerateSessionID(sessionID)
+			if err != nil {
+				return err
+			}
 			resolvedReplyTo := strings.TrimSpace(replyTo)
-			if resolvedSessionID != "" {
-				parsedSession, err := uuid.Parse(resolvedSessionID)
-				if err != nil || parsedSession.Version() != uuid.Version(7) {
-					return fmt.Errorf("--session-id must be uuid_v7")
-				}
-			}
-			if maep.IsDialogueTopic(topic) && resolvedSessionID == "" {
-				return fmt.Errorf("--session-id is required for dialogue topics")
-			}
 
 			messageID := uuid.NewString()
 			var payloadBytes []byte
@@ -682,7 +784,7 @@ func newPushCmd() *cobra.Command {
 			if strings.HasPrefix(lowerContentType, "application/json") {
 				payload := map[string]any{
 					"message_id": messageID,
-					"text":       text,
+					"text":       resolvedMessage,
 					"sent_at":    time.Now().UTC().Format(time.RFC3339),
 				}
 				encodedPayload, err := json.Marshal(payload)
@@ -691,7 +793,7 @@ func newPushCmd() *cobra.Command {
 				}
 				payloadBytes = encodedPayload
 			} else {
-				payloadBytes = []byte(text)
+				payloadBytes = []byte(resolvedMessage)
 			}
 			idempotencyKey = strings.TrimSpace(idempotencyKey)
 			if idempotencyKey == "" {
@@ -736,14 +838,72 @@ func newPushCmd() *cobra.Command {
 
 	cmd.Flags().StringArrayVar(&addresses, "address", nil, "Override dial address (repeatable)")
 	cmd.Flags().StringVar(&topic, "topic", "chat.message", "Data topic")
-	cmd.Flags().StringVar(&text, "text", "", "Text payload")
+	cmd.Flags().StringVar(&message, "message", "", "Message payload (optional; can also be provided as positional argument)")
 	cmd.Flags().StringVar(&contentType, "content-type", "application/json", "Content type")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Idempotency key (default: derived from message_id)")
-	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session id for JSON payload")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session id for JSON payload (UUIDv7, auto-generated when omitted)")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Reply target message id for JSON payload")
 	cmd.Flags().BoolVar(&notify, "notify", false, "Send as JSON-RPC notification (no response expected)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
+}
+
+func resolveOrGenerateSessionID(rawSessionID string) (string, error) {
+	sessionID := strings.TrimSpace(rawSessionID)
+	if sessionID == "" {
+		generated, err := uuid.NewV7()
+		if err != nil {
+			return "", fmt.Errorf("generate session_id: %w", err)
+		}
+		return generated.String(), nil
+	}
+
+	parsedSession, err := uuid.Parse(sessionID)
+	if err != nil || parsedSession.Version() != uuid.Version(7) {
+		return "", fmt.Errorf("--session-id must be uuid_v7")
+	}
+	return sessionID, nil
+}
+
+func resolvePushMessage(rawMessage string, args []string) (string, error) {
+	flagMessage := strings.TrimSpace(rawMessage)
+	positionalMessage := ""
+	if len(args) >= 2 {
+		positionalMessage = strings.TrimSpace(args[1])
+	}
+	if positionalMessage != "" && flagMessage != "" {
+		return "", fmt.Errorf("message provided by both positional argument and --message")
+	}
+	if positionalMessage != "" {
+		return positionalMessage, nil
+	}
+	if flagMessage != "" {
+		return flagMessage, nil
+	}
+	return "", fmt.Errorf("message is required (positional argument or --message)")
+}
+
+func extractPeerIDFromDialAddress(rawAddress string) (string, error) {
+	address := strings.TrimSpace(rawAddress)
+	if address == "" {
+		return "", fmt.Errorf("address is required")
+	}
+	maddr, err := ma.NewMultiaddr(address)
+	if err != nil {
+		return "", fmt.Errorf("invalid address %q: %w", address, err)
+	}
+	_, last := ma.SplitLast(maddr)
+	if last == nil || last.Protocol().Code != ma.P_P2P {
+		return "", fmt.Errorf("address %q must end with /p2p/<peer_id>", address)
+	}
+	peerID := strings.TrimSpace(last.Value())
+	if peerID == "" {
+		return "", fmt.Errorf("address %q has empty /p2p peer id", address)
+	}
+	if _, err := peer.Decode(peerID); err != nil {
+		return "", fmt.Errorf("address %q has invalid /p2p peer id: %w", address, err)
+	}
+	return peerID, nil
 }
 
 func newDialNode(cmd *cobra.Command) (*maep.Node, error) {

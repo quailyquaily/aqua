@@ -171,6 +171,42 @@ func (s *FileStore) ListContacts(ctx context.Context) ([]Contact, error) {
 	return out, nil
 }
 
+func (s *FileStore) DeleteContactByPeerID(ctx context.Context, peerID string) (bool, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := false
+	err := s.withStateLock(ctx, func() error {
+		contacts, err := s.loadContactsLocked()
+		if err != nil {
+			return err
+		}
+		peerID = strings.TrimSpace(peerID)
+		if peerID == "" {
+			return nil
+		}
+
+		filtered := contacts[:0]
+		for _, contact := range contacts {
+			if strings.TrimSpace(contact.PeerID) == peerID {
+				deleted = true
+				continue
+			}
+			filtered = append(filtered, contact)
+		}
+		if !deleted {
+			return nil
+		}
+		return s.saveContactsLocked(filtered)
+	})
+	if err != nil {
+		return false, err
+	}
+	return deleted, nil
+}
+
 func (s *FileStore) AppendAuditEvent(ctx context.Context, event AuditEvent) error {
 	if err := s.ensureNotCanceled(ctx); err != nil {
 		return err

@@ -45,7 +45,7 @@ func TestFileStoreIdentityAndContacts(t *testing.T) {
 		PeerID:               "12D3KooWcontact",
 		NodeID:               "maep:12D3KooWcontact",
 		IdentityPubEd25519:   "ccccccccccccccccccccccccccccccccccccccccccc",
-		Addresses:            []string{"/dns4/example.com/udp/4001/quic-v1/p2p/12D3KooWcontact"},
+		Addresses:            []string{"/dns4/example.com/udp/6371/quic-v1/p2p/12D3KooWcontact"},
 		MinSupportedProtocol: 1,
 		MaxSupportedProtocol: 1,
 		IssuedAt:             now,
@@ -69,6 +69,29 @@ func TestFileStoreIdentityAndContacts(t *testing.T) {
 	}
 	if gotContact.NodeUUID != contact.NodeUUID {
 		t.Fatalf("contact node_uuid mismatch: got %s want %s", gotContact.NodeUUID, contact.NodeUUID)
+	}
+
+	deleted, err := store.DeleteContactByPeerID(ctx, contact.PeerID)
+	if err != nil {
+		t.Fatalf("DeleteContactByPeerID() error = %v", err)
+	}
+	if !deleted {
+		t.Fatalf("DeleteContactByPeerID() expected deleted=true")
+	}
+	_, ok, err = store.GetContactByPeerID(ctx, contact.PeerID)
+	if err != nil {
+		t.Fatalf("GetContactByPeerID(after delete) error = %v", err)
+	}
+	if ok {
+		t.Fatalf("GetContactByPeerID(after delete) expected ok=false")
+	}
+
+	deleted, err = store.DeleteContactByPeerID(ctx, contact.PeerID)
+	if err != nil {
+		t.Fatalf("DeleteContactByPeerID(second call) error = %v", err)
+	}
+	if deleted {
+		t.Fatalf("DeleteContactByPeerID(second call) expected deleted=false")
 	}
 }
 

@@ -15,7 +15,7 @@ func TestBuildAndVerifyContactCard(t *testing.T) {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
 
-	addr := fmt.Sprintf("/dns4/example.com/udp/4001/quic-v1/p2p/%s", identity.PeerID)
+	addr := fmt.Sprintf("/dns4/example.com/udp/6371/quic-v1/p2p/%s", identity.PeerID)
 	card, err := BuildSignedContactCard(identity, []string{addr}, 1, 1, now, nil)
 	if err != nil {
 		t.Fatalf("BuildSignedContactCard() error = %v", err)
@@ -42,7 +42,7 @@ func TestVerifyContactCardDetectsTamper(t *testing.T) {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
 
-	addr := fmt.Sprintf("/dns4/example.com/udp/4001/quic-v1/p2p/%s", identity.PeerID)
+	addr := fmt.Sprintf("/dns4/example.com/udp/6371/quic-v1/p2p/%s", identity.PeerID)
 	card, err := BuildSignedContactCard(identity, []string{addr}, 1, 1, now, nil)
 	if err != nil {
 		t.Fatalf("BuildSignedContactCard() error = %v", err)

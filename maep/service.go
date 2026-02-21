@@ -240,6 +240,34 @@ func (s *Service) MarkContactVerified(ctx context.Context, peerID string, now ti
 	return contact, nil
 }
 
+func (s *Service) DeleteContact(ctx context.Context, peerID string, now time.Time) error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("nil maep service")
+	}
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return fmt.Errorf("peer_id is required")
+	}
+	contact, ok, err := s.store.GetContactByPeerID(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("contact not found: %s", peerID)
+	}
+	deleted, err := s.store.DeleteContactByPeerID(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return fmt.Errorf("contact not found: %s", peerID)
+	}
+	if err := s.appendAuditEvent(ctx, normalizedNow(now), AuditActionContactDeleted, contact, contact.TrustState, "", "manual_delete", nil); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) appendAuditEvent(ctx context.Context, now time.Time, action string, contact Contact, previousTrustState TrustState, newTrustState TrustState, reason string, metadata map[string]string) error {
 	event := AuditEvent{
 		EventID:            "evt_" + uuid.NewString(),

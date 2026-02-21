@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quailyquaily/aqua/maep"
+	"github.com/quailyquaily/aqua/aqua"
 )
 
 func TestResolvePushMessage(t *testing.T) {
@@ -61,7 +61,7 @@ func TestResolvePushMessage(t *testing.T) {
 func TestExtractPeerIDFromDialAddress(t *testing.T) {
 	t.Parallel()
 
-	identity, err := maep.GenerateIdentity(time.Date(2026, 2, 22, 7, 0, 0, 0, time.UTC))
+	identity, err := aqua.GenerateIdentity(time.Date(2026, 2, 22, 7, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
@@ -104,7 +104,7 @@ func TestContactDisplayLabel(t *testing.T) {
 	t.Run("prefers display name", func(t *testing.T) {
 		t.Parallel()
 
-		label := contactDisplayLabel(maep.Contact{
+		label := contactDisplayLabel(aqua.Contact{
 			DisplayName: "  teammate  ",
 			Nickname:    "alice",
 		})
@@ -116,7 +116,7 @@ func TestContactDisplayLabel(t *testing.T) {
 	t.Run("falls back to nickname", func(t *testing.T) {
 		t.Parallel()
 
-		label := contactDisplayLabel(maep.Contact{Nickname: "  alice  "})
+		label := contactDisplayLabel(aqua.Contact{Nickname: "  alice  "})
 		if label != "alice" {
 			t.Fatalf("label mismatch: got %q want %q", label, "alice")
 		}
@@ -125,7 +125,7 @@ func TestContactDisplayLabel(t *testing.T) {
 	t.Run("returns empty when both are missing", func(t *testing.T) {
 		t.Parallel()
 
-		label := contactDisplayLabel(maep.Contact{})
+		label := contactDisplayLabel(aqua.Contact{})
 		if label != "" {
 			t.Fatalf("expected empty label, got %q", label)
 		}

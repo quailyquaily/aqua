@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"context"
@@ -74,7 +74,7 @@ type helloMessage struct {
 
 func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error) {
 	if svc == nil || svc.store == nil {
-		return nil, fmt.Errorf("nil maep service")
+		return nil, fmt.Errorf("nil aqua service")
 	}
 	identity, ok, err := svc.GetIdentity(ctx)
 	if err != nil {

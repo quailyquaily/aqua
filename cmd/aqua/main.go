@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
-	"github.com/quailyquaily/aqua/maep"
+	"github.com/quailyquaily/aqua/aqua"
 	"github.com/spf13/cobra"
 )
 
@@ -36,9 +36,9 @@ func main() {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "aqua",
-		Short: "Standalone MAEP program",
+		Short: "Standalone Aqua program",
 	}
-	cmd.PersistentFlags().String("dir", defaultMAEPDir(), "MAEP state directory")
+	cmd.PersistentFlags().String("dir", defaultAquaDir(), "Aqua state directory")
 
 	cmd.AddCommand(newInitCmd())
 	cmd.AddCommand(newIDCmd())
@@ -59,14 +59,14 @@ func newInitCmd() *cobra.Command {
 	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize local MAEP identity",
+		Short: "Initialize local Aqua identity",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
 			identity, created, err := svc.EnsureIdentity(cmd.Context(), time.Now().UTC())
 			if err != nil {
 				return err
 			}
-			fingerprint, _ := maep.FingerprintGrouped(identity.IdentityPubEd25519)
+			fingerprint, _ := aqua.FingerprintGrouped(identity.IdentityPubEd25519)
 			view := map[string]any{
 				"created":     created,
 				"node_uuid":   identity.NodeUUID,
@@ -102,12 +102,12 @@ func newIDCmd() *cobra.Command {
 	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "id [nickname]",
-		Short: "Show local MAEP identity or set nickname",
+		Short: "Show local Aqua identity or set nickname",
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
 			var (
-				identity maep.Identity
+				identity aqua.Identity
 				ok       bool
 				err      error
 			)
@@ -126,7 +126,7 @@ func newIDCmd() *cobra.Command {
 				}
 			}
 
-			fingerprint, _ := maep.FingerprintGrouped(identity.IdentityPubEd25519)
+			fingerprint, _ := aqua.FingerprintGrouped(identity.IdentityPubEd25519)
 			view := map[string]any{
 				"node_uuid":            identity.NodeUUID,
 				"peer_id":              identity.PeerID,
@@ -163,7 +163,7 @@ func newIDCmd() *cobra.Command {
 func newCardCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Manage MAEP contact cards",
+		Short: "Manage Aqua contact cards",
 	}
 	cmd.AddCommand(newCardExportCmd())
 	return cmd
@@ -230,7 +230,7 @@ func newCardExportCmd() *cobra.Command {
 func newContactsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "contacts",
-		Short: "Manage MAEP contacts",
+		Short: "Manage Aqua contacts",
 	}
 	cmd.AddCommand(newContactsListCmd())
 	cmd.AddCommand(newContactsAddCmd())
@@ -294,7 +294,7 @@ func newContactsImportCmd() *cobra.Command {
 			svc := serviceFromCmd(cmd)
 			result, err := svc.ImportContactCard(cmd.Context(), raw, displayName, time.Now().UTC())
 			if err != nil {
-				symbol := maep.SymbolOf(err)
+				symbol := aqua.SymbolOf(err)
 				if symbol != "" {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
 				}
@@ -336,7 +336,7 @@ func newContactsAddCmd() *cobra.Command {
 
 			rawCard, err := node.GetContactCard(cmd.Context(), peerID, []string{dialAddress})
 			if err != nil {
-				symbol := maep.SymbolOf(err)
+				symbol := aqua.SymbolOf(err)
 				if symbol != "" {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
 				}
@@ -346,7 +346,7 @@ func newContactsAddCmd() *cobra.Command {
 			svc := serviceFromCmd(cmd)
 			result, err := svc.ImportContactCard(cmd.Context(), rawCard, displayName, time.Now().UTC())
 			if err != nil {
-				symbol := maep.SymbolOf(err)
+				symbol := aqua.SymbolOf(err)
 				if symbol != "" {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
 				}
@@ -361,7 +361,7 @@ func newContactsAddCmd() *cobra.Command {
 			if verify {
 				verifiedContact, err := svc.MarkContactVerified(cmd.Context(), contact.PeerID, time.Now().UTC())
 				if err != nil {
-					symbol := maep.SymbolOf(err)
+					symbol := aqua.SymbolOf(err)
 					if symbol != "" {
 						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "symbol: %s\n", symbol)
 					}
@@ -370,7 +370,7 @@ func newContactsAddCmd() *cobra.Command {
 				contact = verifiedContact
 			}
 
-			fingerprint, _ := maep.FingerprintGrouped(contact.IdentityPubEd25519)
+			fingerprint, _ := aqua.FingerprintGrouped(contact.IdentityPubEd25519)
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), map[string]any{
 					"status":      status,
@@ -434,7 +434,7 @@ func newContactsShowCmd() *cobra.Command {
 				return fmt.Errorf("contact not found: %s", args[0])
 			}
 
-			fingerprint, _ := maep.FingerprintGrouped(contact.IdentityPubEd25519)
+			fingerprint, _ := aqua.FingerprintGrouped(contact.IdentityPubEd25519)
 			view := map[string]any{
 				"peer_id":                contact.PeerID,
 				"node_uuid":              contact.NodeUUID,
@@ -486,7 +486,7 @@ func newContactsVerifyCmd() *cobra.Command {
 func newAuditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "audit",
-		Short: "Query MAEP trust-state and operation audit events",
+		Short: "Query Aqua trust-state and operation audit events",
 	}
 	cmd.AddCommand(newAuditListCmd())
 	return cmd
@@ -625,7 +625,7 @@ func newServeCmd() *cobra.Command {
 	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run MAEP libp2p node and handle incoming RPC streams",
+		Short: "Run Aqua libp2p node and handle incoming RPC streams",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -636,10 +636,10 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 			logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
-			node, err := maep.NewNode(runCtx, svc, maep.NodeOptions{
+			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
 				ListenAddrs: listenAddrs,
 				Logger:      logger,
-				OnDataPush: func(event maep.DataPushEvent) {
+				OnDataPush: func(event aqua.DataPushEvent) {
 					printDataPushEvent(cmd, event, outputJSON)
 				},
 			})
@@ -817,7 +817,7 @@ func newPushCmd() *cobra.Command {
 				idempotencyKey = messageEnvelopeKey(messageID)
 			}
 
-			req := maep.DataPushRequest{
+			req := aqua.DataPushRequest{
 				Topic:          topic,
 				ContentType:    contentType,
 				PayloadBase64:  base64.RawURLEncoding.EncodeToString(payloadBytes),
@@ -900,7 +900,7 @@ func resolvePushMessage(rawMessage string, args []string) (string, error) {
 	return "", fmt.Errorf("message is required (positional argument or --message)")
 }
 
-func contactDisplayLabel(contact maep.Contact) string {
+func contactDisplayLabel(contact aqua.Contact) string {
 	label := strings.TrimSpace(contact.DisplayName)
 	if label != "" {
 		return label
@@ -931,13 +931,13 @@ func extractPeerIDFromDialAddress(rawAddress string) (string, error) {
 	return peerID, nil
 }
 
-func newDialNode(cmd *cobra.Command) (*maep.Node, error) {
+func newDialNode(cmd *cobra.Command) (*aqua.Node, error) {
 	svc := serviceFromCmd(cmd)
 	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
-	return maep.NewNode(cmd.Context(), svc, maep.NodeOptions{DialOnly: true, Logger: logger})
+	return aqua.NewNode(cmd.Context(), svc, aqua.NodeOptions{DialOnly: true, Logger: logger})
 }
 
-func printDataPushEvent(cmd *cobra.Command, event maep.DataPushEvent, outputJSON bool) {
+func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON bool) {
 	if outputJSON {
 		payloadText := ""
 		if strings.HasPrefix(strings.ToLower(event.ContentType), "text/") || strings.EqualFold(event.ContentType, "application/json") {
@@ -986,7 +986,7 @@ func summarizePayload(contentType string, payloadBase64 string) string {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return "<invalid-json>"
 		}
-		if isMAEPEnvelopeJSON(obj) {
+		if isAquaEnvelopeJSON(obj) {
 			text, err := json.MarshalIndent(obj, "", "  ")
 			if err != nil {
 				return "<json-encode-error>"
@@ -1005,7 +1005,7 @@ func summarizePayload(contentType string, payloadBase64 string) string {
 	return fmt.Sprintf("<%d bytes>", len(data))
 }
 
-func writeInboxRecords(w io.Writer, records []maep.InboxMessage) {
+func writeInboxRecords(w io.Writer, records []aqua.InboxMessage) {
 	for i, record := range records {
 		payloadSummary := summarizePayload(record.ContentType, record.PayloadBase64)
 		_, _ = fmt.Fprintf(w, "[%d]\n", i+1)
@@ -1026,7 +1026,7 @@ func writeInboxRecords(w io.Writer, records []maep.InboxMessage) {
 	}
 }
 
-func writeOutboxRecords(w io.Writer, records []maep.OutboxMessage) {
+func writeOutboxRecords(w io.Writer, records []aqua.OutboxMessage) {
 	for i, record := range records {
 		payloadSummary := summarizePayload(record.ContentType, record.PayloadBase64)
 		_, _ = fmt.Fprintf(w, "[%d]\n", i+1)
@@ -1062,7 +1062,7 @@ func indentBlock(text string, prefix string) string {
 	return strings.Join(lines, "\n")
 }
 
-func isMAEPEnvelopeJSON(v any) bool {
+func isAquaEnvelopeJSON(v any) bool {
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return false
@@ -1081,7 +1081,7 @@ func isMAEPEnvelopeJSON(v any) bool {
 
 func resolveCardExportAddressesForCommand(
 	ctx context.Context,
-	svc *maep.Service,
+	svc *aqua.Service,
 	explicit []string,
 	configuredListenAddrs []string,
 	in io.Reader,
@@ -1092,7 +1092,7 @@ func resolveCardExportAddressesForCommand(
 
 func resolveCardExportAddressesWithPrompt(
 	ctx context.Context,
-	svc *maep.Service,
+	svc *aqua.Service,
 	explicit []string,
 	configuredListenAddrs []string,
 	in io.Reader,
@@ -1466,26 +1466,26 @@ func normalizeAddressList(values []string) []string {
 	return out
 }
 
-func serviceFromCmd(cmd *cobra.Command) *maep.Service {
+func serviceFromCmd(cmd *cobra.Command) *aqua.Service {
 	dir, _ := cmd.Flags().GetString("dir")
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
-		dir = defaultMAEPDir()
+		dir = defaultAquaDir()
 	}
 	dir = expandHomePath(dir)
-	store := maep.NewFileStore(dir)
-	return maep.NewService(store)
+	store := aqua.NewFileStore(dir)
+	return aqua.NewService(store)
 }
 
-func defaultMAEPDir() string {
-	if v := strings.TrimSpace(os.Getenv("AQUA_MAEP_DIR")); v != "" {
+func defaultAquaDir() string {
+	if v := strings.TrimSpace(os.Getenv("AQUA_DIR")); v != "" {
 		return expandHomePath(v)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
-		return ".aqua/maep"
+		return ".aqua/aqua"
 	}
-	return filepath.Join(home, ".aqua", "maep")
+	return filepath.Join(home, ".aqua", "aqua")
 }
 
 func expandHomePath(path string) string {

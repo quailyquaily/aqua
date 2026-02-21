@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 func TestServiceAuditOnImportAndVerify(t *testing.T) {
 	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), "maep")
+	root := filepath.Join(t.TempDir(), "aqua")
 	store := NewFileStore(root)
 	svc := NewService(store)
 
@@ -83,7 +83,7 @@ func TestServiceAuditOnImportAndVerify(t *testing.T) {
 
 func TestServiceDeleteContact_AppendsAuditEvent(t *testing.T) {
 	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), "maep")
+	root := filepath.Join(t.TempDir(), "aqua")
 	store := NewFileStore(root)
 	svc := NewService(store)
 

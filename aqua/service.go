@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func NewService(store Store) *Service {
 
 func (s *Service) EnsureIdentity(ctx context.Context, now time.Time) (Identity, bool, error) {
 	if s == nil || s.store == nil {
-		return Identity{}, false, fmt.Errorf("nil maep service")
+		return Identity{}, false, fmt.Errorf("nil aqua service")
 	}
 	if err := s.store.Ensure(ctx); err != nil {
 		return Identity{}, false, err
@@ -46,14 +46,14 @@ func (s *Service) EnsureIdentity(ctx context.Context, now time.Time) (Identity, 
 
 func (s *Service) GetIdentity(ctx context.Context) (Identity, bool, error) {
 	if s == nil || s.store == nil {
-		return Identity{}, false, fmt.Errorf("nil maep service")
+		return Identity{}, false, fmt.Errorf("nil aqua service")
 	}
 	return s.store.GetIdentity(ctx)
 }
 
 func (s *Service) SetIdentityNickname(ctx context.Context, nickname string, now time.Time) (Identity, error) {
 	if s == nil || s.store == nil {
-		return Identity{}, fmt.Errorf("nil maep service")
+		return Identity{}, fmt.Errorf("nil aqua service")
 	}
 
 	identity, ok, err := s.store.GetIdentity(ctx)
@@ -101,7 +101,7 @@ func (s *Service) ExportContactCard(ctx context.Context, addresses []string, min
 
 func (s *Service) ImportContactCard(ctx context.Context, rawCard []byte, displayName string, now time.Time) (ImportContactResult, error) {
 	if s == nil || s.store == nil {
-		return ImportContactResult{}, fmt.Errorf("nil maep service")
+		return ImportContactResult{}, fmt.Errorf("nil aqua service")
 	}
 	if err := s.store.Ensure(ctx); err != nil {
 		return ImportContactResult{}, err
@@ -211,35 +211,35 @@ func (s *Service) ImportContactCard(ctx context.Context, rawCard []byte, display
 
 func (s *Service) ListContacts(ctx context.Context) ([]Contact, error) {
 	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("nil maep service")
+		return nil, fmt.Errorf("nil aqua service")
 	}
 	return s.store.ListContacts(ctx)
 }
 
 func (s *Service) ListInboxMessages(ctx context.Context, fromPeerID string, topic string, limit int) ([]InboxMessage, error) {
 	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("nil maep service")
+		return nil, fmt.Errorf("nil aqua service")
 	}
 	return s.store.ListInboxMessages(ctx, fromPeerID, topic, limit)
 }
 
 func (s *Service) ListOutboxMessages(ctx context.Context, toPeerID string, topic string, limit int) ([]OutboxMessage, error) {
 	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("nil maep service")
+		return nil, fmt.Errorf("nil aqua service")
 	}
 	return s.store.ListOutboxMessages(ctx, toPeerID, topic, limit)
 }
 
 func (s *Service) ListAuditEvents(ctx context.Context, peerID string, action string, limit int) ([]AuditEvent, error) {
 	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("nil maep service")
+		return nil, fmt.Errorf("nil aqua service")
 	}
 	return s.store.ListAuditEvents(ctx, peerID, action, limit)
 }
 
 func (s *Service) GetContactByPeerID(ctx context.Context, peerID string) (Contact, bool, error) {
 	if s == nil || s.store == nil {
-		return Contact{}, false, fmt.Errorf("nil maep service")
+		return Contact{}, false, fmt.Errorf("nil aqua service")
 	}
 	return s.store.GetContactByPeerID(ctx, peerID)
 }
@@ -269,7 +269,7 @@ func (s *Service) MarkContactVerified(ctx context.Context, peerID string, now ti
 
 func (s *Service) DeleteContact(ctx context.Context, peerID string, now time.Time) error {
 	if s == nil || s.store == nil {
-		return fmt.Errorf("nil maep service")
+		return fmt.Errorf("nil aqua service")
 	}
 	peerID = strings.TrimSpace(peerID)
 	if peerID == "" {

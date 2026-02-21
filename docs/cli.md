@@ -168,8 +168,8 @@ Expected behavior:
 
 ### Global
 
-- `--dir <path>`: MAEP state directory override.
-- `AQUA_MAEP_DIR`: used when `--dir` is not provided.
+- `--dir <path>`: Aqua state directory override.
+- `AQUA_DIR`: used when `--dir` is not provided.
 
 ### Identity
 

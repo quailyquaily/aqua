@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"bufio"
@@ -798,7 +798,7 @@ func (s *FileStore) ensureNotCanceled(ctx context.Context) error {
 func (s *FileStore) rootPath() string {
 	root := strings.TrimSpace(s.root)
 	if root == "" {
-		return "maep"
+		return "aqua"
 	}
 	return filepath.Clean(root)
 }

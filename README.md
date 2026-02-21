@@ -10,6 +10,16 @@ Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`
 - Relay support for NAT traversal and connectivity (WIP).
 - Simple CLI for node management and messaging, designed for agent operators (SKILL.md included).
 
+## Install
+
+```bash
+go install github.com/quailyquaily/aqua/cmd/aqua@latest
+# or pin to a specific release
+go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.1
+```
+
+Make sure your `$GOBIN` (or `$GOPATH/bin`) is in `PATH`.
+
 ## Build
 
 ```bash
@@ -35,12 +45,12 @@ aqua push <peer_id> "hello"
 
 ## Data Directory
 
-Default directory: `~/.aqua/maep`
+Default directory: `~/.aqua/aqua`
 
 You can override it with:
 
 - `--dir <path>`
-- Environment variable `AQUA_MAEP_DIR`
+- Environment variable `AQUA_DIR`
 
 ## CLI Commands
 

@@ -66,4 +66,3 @@ func TestResolveOrGenerateSessionID(t *testing.T) {
 		}
 	})
 }
-

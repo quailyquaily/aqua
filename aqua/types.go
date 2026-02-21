@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"encoding/json"
@@ -6,11 +6,11 @@ import (
 )
 
 const (
-	NodeIDPrefix             = "maep:"
+	NodeIDPrefix             = "aqua:"
 	ContactCardVersionV1     = 1
 	ProtocolVersionV1        = 1
-	ProtocolHelloIDV1        = "/maep/hello/1.0.0"
-	ProtocolRPCIDV1          = "/maep/rpc/1.0.0"
+	ProtocolHelloIDV1        = "/aqua/hello/1.0.0"
+	ProtocolRPCIDV1          = "/aqua/rpc/1.0.0"
 	CapabilityDataPushV1     = "rpc.data.push.v1"
 	JSONRPCVersion           = "2.0"
 	DefaultHelloTimeout      = 3 * time.Second
@@ -23,7 +23,7 @@ const (
 	MaxPayloadBytesV1        = 128 * 1024
 	ContactCardSigAlgEd25519 = "ed25519"
 	ContactCardSigFormatJCS  = "jcs-rfc8785-detached"
-	ContactCardSignDomainV1  = "maep-contact-card-v1\n"
+	ContactCardSignDomainV1  = "aqua-contact-card-v1\n"
 )
 
 type TrustState string

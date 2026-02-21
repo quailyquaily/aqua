@@ -1,17 +1,17 @@
-# Aqua MAEP Architecture
+# Aqua Architecture
 
-`aqua` is a standalone MAEP program extracted from `mistermorph`. Module name:
+`aqua` is a standalone Aqua program extracted from `mistermorph`. Module name:
 
 - `github.com/quailyquaily/aqua`
 
-The goal is to make MAEP independently buildable, runnable, and releasable without depending on `mistermorph` packages.
+The goal is to make Aqua independently buildable, runnable, and releasable without depending on `mistermorph` packages.
 
 ## Directory Layout
 
 - `cmd/aqua/main.go`
   - Standalone CLI entrypoint with common commands for identity/contact/card/node/RPC.
-- `maep/`
-  - MAEP core domain model and protocol implementation (identity, contact card, hello/RPC/data.push, service, store).
+- `aqua/`
+  - Aqua core domain model and protocol implementation (identity, contact card, hello/RPC/data.push, service, store).
 - `internal/fsstore/`
   - File storage foundations (atomic writes, file locks, JSON/JSONL read/write, index helpers).
 
@@ -25,7 +25,7 @@ The goal is to make MAEP independently buildable, runnable, and releasable witho
 
 ## Data Persistence
 
-Default directory: `~/.aqua/maep` (overridable via `--dir` or `AQUA_MAEP_DIR`).
+Default directory: `~/.aqua/aqua` (overridable via `--dir` or `AQUA_DIR`).
 
 Core files:
 

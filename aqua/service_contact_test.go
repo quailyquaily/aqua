@@ -1,4 +1,4 @@
-package maep
+package aqua
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 
 func TestServiceImportContactCard_SavesNickname(t *testing.T) {
 	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), "maep")
+	root := filepath.Join(t.TempDir(), "aqua")
 	svc := NewService(NewFileStore(root))
 
 	now := time.Date(2026, 2, 22, 10, 0, 0, 0, time.UTC)
@@ -59,7 +59,7 @@ func TestServiceImportContactCard_SavesNickname(t *testing.T) {
 
 func TestServiceImportContactCard_UpdatesNickname(t *testing.T) {
 	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), "maep")
+	root := filepath.Join(t.TempDir(), "aqua")
 	svc := NewService(NewFileStore(root))
 
 	now := time.Date(2026, 2, 22, 11, 0, 0, 0, time.UTC)

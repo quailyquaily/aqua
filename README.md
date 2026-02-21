@@ -6,9 +6,9 @@ Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`
 
 - Peer-to-peer agent communication with identity verification.
 - End-to-end encrypted messaging.
-- Durable message storage with inbox/outbox/audit.
+- Durable message storage with inbox/outbox.
 - Relay support for NAT traversal and connectivity (WIP).
-- Simple CLI for node management and messaging, designed for agent operators (SKILL.md included).
+- Simple CLI for node management and messaging.
 
 ## Install
 
@@ -39,31 +39,13 @@ aqua serve
 aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
 
 # 4) Handshake and send
-aqua push <peer_id> "hello"
+aqua send <peer_id> "hello"
 ```
 
-## Message Topics
+## AI Agent Skill
 
-Aqua `push` uses `--topic` to describe message semantics.
-Message content can be passed either by positional argument or `--message`.
-
-Built-in dialogue topics (session-based):
-
-- `chat.message`: default chat message topic.
-
-For dialogue topics, `session_id` is recommended, to group messages within it. If you omit `--session-id`, Aqua auto-generates a UUIDv7.
-
-Non-dialogue topics:
-
-- Any non-empty custom topic string is allowed.
-- `session_id` is optional for non-dialogue topics.
-
-Examples:
-
-```bash
-# default dialogue topic
-aqua push <peer_id> "Hi"
-```
+For agents that need to communicate over Aqua, see `SKILL.md`.
+It explains practical command flows (`init`/`serve`/`contacts add`/`hello`/`send`) and troubleshooting.
 
 ## Data Directory
 
@@ -79,8 +61,9 @@ You can override it with:
 - `init`, `id`
 - `card export`
 - `contacts list/add/import/show/verify/del`
-- `serve`, `hello`, `ping`, `capabilities`, `push`
-- `audit list`, `inbox list`, `outbox list`
+- `serve`, `hello`, `ping`, `capabilities`, `send`
+- `inbox list`, `outbox list`
+- `version`
 
 ## Documentation
 

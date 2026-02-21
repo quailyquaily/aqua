@@ -167,23 +167,3 @@ type OutboxMessage struct {
 	ReplyTo        string    `json:"reply_to,omitempty"`
 	SentAt         time.Time `json:"sent_at"`
 }
-
-const (
-	AuditActionContactImportCreated  = "contact.import.created"
-	AuditActionContactImportUpdated  = "contact.import.updated"
-	AuditActionContactImportConflict = "contact.import.conflict"
-	AuditActionContactDeleted        = "contact.deleted"
-	AuditActionTrustStateChanged     = "contact.trust_state.changed"
-)
-
-type AuditEvent struct {
-	EventID            string            `json:"event_id"`
-	Action             string            `json:"action"`
-	PeerID             string            `json:"peer_id,omitempty"`
-	NodeUUID           string            `json:"node_uuid,omitempty"`
-	PreviousTrustState TrustState        `json:"previous_trust_state,omitempty"`
-	NewTrustState      TrustState        `json:"new_trust_state,omitempty"`
-	Reason             string            `json:"reason,omitempty"`
-	Metadata           map[string]string `json:"metadata,omitempty"`
-	CreatedAt          time.Time         `json:"created_at"`
-}

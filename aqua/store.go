@@ -14,8 +14,6 @@ type Store interface {
 	PutContact(ctx context.Context, contact Contact) error
 	DeleteContactByPeerID(ctx context.Context, peerID string) (bool, error)
 	ListContacts(ctx context.Context) ([]Contact, error)
-	AppendAuditEvent(ctx context.Context, event AuditEvent) error
-	ListAuditEvents(ctx context.Context, peerID string, action string, limit int) ([]AuditEvent, error)
 	AppendInboxMessage(ctx context.Context, message InboxMessage) error
 	ListInboxMessages(ctx context.Context, fromPeerID string, topic string, limit int) ([]InboxMessage, error)
 	AppendOutboxMessage(ctx context.Context, message OutboxMessage) error

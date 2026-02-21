@@ -31,7 +31,6 @@ Core files:
 
 - `identity.json`: local identity (including peer_id and key material)
 - `contacts.json`: contact registry
-- `audit_events.jsonl`: contact import and trust-state change audit trail
 - `inbox_messages.jsonl`: received messages
 - `outbox_messages.jsonl`: sent messages
 - `dedupe_records.json`: idempotency/deduplication records

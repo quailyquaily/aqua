@@ -414,22 +414,7 @@ Topic list:
 - Dialogue topic (session required): `chat.message`.
 - Non-dialogue topics: any non-empty custom topic string (session optional).
 
-### Audit and Mailboxes
-
-#### `aqua audit list`
-
-Usage:
-
-```bash
-aqua audit list [--peer-id <peer_id>] [--action <symbol>] [--limit <n>] [--json]
-```
-
-Flags:
-
-- `--peer-id`: filter by peer ID.
-- `--action`: filter by audit action symbol.
-- `--limit`: max records. `<= 0` means all. Default `100`.
-- `--json`: print structured JSON output.
+### Mailboxes
 
 #### `aqua inbox list`
 

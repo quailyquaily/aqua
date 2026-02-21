@@ -207,71 +207,6 @@ func (s *FileStore) DeleteContactByPeerID(ctx context.Context, peerID string) (b
 	return deleted, nil
 }
 
-func (s *FileStore) AppendAuditEvent(ctx context.Context, event AuditEvent) error {
-	if err := s.ensureNotCanceled(ctx); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	event.EventID = strings.TrimSpace(event.EventID)
-	event.Action = strings.TrimSpace(event.Action)
-	event.PeerID = strings.TrimSpace(event.PeerID)
-	event.NodeUUID = strings.TrimSpace(event.NodeUUID)
-	event.Reason = strings.TrimSpace(event.Reason)
-	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now().UTC()
-	}
-	if event.Metadata != nil && len(event.Metadata) == 0 {
-		event.Metadata = nil
-	}
-	return s.withAuditLock(ctx, func() error {
-		return s.appendAuditEventLocked(event)
-	})
-}
-
-func (s *FileStore) ListAuditEvents(ctx context.Context, peerID string, action string, limit int) ([]AuditEvent, error) {
-	if err := s.ensureNotCanceled(ctx); err != nil {
-		return nil, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	peerID = strings.TrimSpace(peerID)
-	action = strings.TrimSpace(action)
-
-	var out []AuditEvent
-	err := s.withAuditLock(ctx, func() error {
-		records, err := s.loadAuditEventsLocked()
-		if err != nil {
-			return err
-		}
-
-		filtered := make([]AuditEvent, 0, len(records))
-		for _, record := range records {
-			if peerID != "" && strings.TrimSpace(record.PeerID) != peerID {
-				continue
-			}
-			if action != "" && strings.TrimSpace(record.Action) != action {
-				continue
-			}
-			filtered = append(filtered, record)
-		}
-		sort.Slice(filtered, func(i, j int) bool {
-			if filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
-				return strings.TrimSpace(filtered[i].EventID) > strings.TrimSpace(filtered[j].EventID)
-			}
-			return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
-		})
-		if limit > 0 && len(filtered) > limit {
-			filtered = filtered[:limit]
-		}
-		out = make([]AuditEvent, len(filtered))
-		copy(out, filtered)
-		return nil
-	})
-	return out, err
-}
-
 func (s *FileStore) AppendInboxMessage(ctx context.Context, message InboxMessage) error {
 	if err := s.ensureNotCanceled(ctx); err != nil {
 		return err
@@ -572,17 +507,6 @@ func (s *FileStore) saveContactsLocked(contacts []Contact) error {
 	return s.writeJSONFileAtomic(s.contactsPath(), file, 0o600)
 }
 
-func (s *FileStore) loadAuditEventsLocked() ([]AuditEvent, error) {
-	records, ok, err := s.readAuditEventsJSONL(s.auditPathJSONL())
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return records, nil
-	}
-	return []AuditEvent{}, nil
-}
-
 func (s *FileStore) loadDedupeRecordsLocked() ([]DedupeRecord, error) {
 	var file dedupeFile
 	ok, err := s.readJSONFile(s.dedupePath(), &file)
@@ -671,52 +595,6 @@ func (s *FileStore) writeJSONFileAtomic(path string, v any, perm os.FileMode) er
 		DirPerm:  0o700,
 		FilePerm: perm,
 	})
-}
-
-func (s *FileStore) appendAuditEventLocked(event AuditEvent) error {
-	writer, err := fsstore.NewJSONLWriter(s.auditPathJSONL(), fsstore.JSONLOptions{
-		DirPerm:        0o700,
-		FilePerm:       0o600,
-		FlushEachWrite: true,
-	})
-	if err != nil {
-		return fmt.Errorf("open audit writer: %w", err)
-	}
-	defer writer.Close()
-	if err := writer.AppendJSON(event); err != nil {
-		return fmt.Errorf("append audit event: %w", err)
-	}
-	return nil
-}
-
-func (s *FileStore) readAuditEventsJSONL(path string) ([]AuditEvent, bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("open audit jsonl %s: %w", path, err)
-	}
-	defer file.Close()
-
-	records := make([]AuditEvent, 0, 64)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var event AuditEvent
-		if err := json.Unmarshal(line, &event); err != nil {
-			return nil, false, fmt.Errorf("decode audit jsonl %s: %w", path, err)
-		}
-		records = append(records, event)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, false, fmt.Errorf("scan audit jsonl %s: %w", path, err)
-	}
-	return records, true, nil
 }
 
 func (s *FileStore) readInboxMessagesJSONL(path string) ([]InboxMessage, bool, error) {
@@ -811,10 +689,6 @@ func (s *FileStore) withStateLock(ctx context.Context, fn func() error) error {
 	return s.withLock(ctx, "state.main", fn)
 }
 
-func (s *FileStore) withAuditLock(ctx context.Context, fn func() error) error {
-	return s.withLock(ctx, "audit.audit_events_jsonl", fn)
-}
-
 func (s *FileStore) withLock(ctx context.Context, key string, fn func() error) error {
 	lockPath, err := fsstore.BuildLockPath(s.lockRootPath(), key)
 	if err != nil {
@@ -829,10 +703,6 @@ func (s *FileStore) identityPath() string {
 
 func (s *FileStore) contactsPath() string {
 	return filepath.Join(s.rootPath(), "contacts.json")
-}
-
-func (s *FileStore) auditPathJSONL() string {
-	return filepath.Join(s.rootPath(), "audit_events.jsonl")
 }
 
 func (s *FileStore) dedupePath() string {

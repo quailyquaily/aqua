@@ -16,6 +16,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newInboxCmd())
 	cmd.AddCommand(newOutboxCmd())
 	cmd.AddCommand(newServeCmd())
+	cmd.AddCommand(newRelayCmd())
 	cmd.AddCommand(newHelloCmd())
 	cmd.AddCommand(newPingCmd())
 	cmd.AddCommand(newCapabilitiesCmd())

@@ -20,6 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	relayclient "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -28,6 +29,7 @@ const sessionFreshWindow = 10 * time.Minute
 type NodeOptions struct {
 	DialOnly           bool
 	ListenAddrs        []string
+	RelayAddrs         []string
 	RelayMode          string
 	DialAddrTimeout    time.Duration
 	HelloTimeout       time.Duration
@@ -62,6 +64,9 @@ type Node struct {
 
 	rateMu          sync.Mutex
 	pushRateWindows map[string]pushRateWindow
+
+	relayMu             sync.RWMutex
+	relayAdvertiseAddrs []string
 }
 
 type pushRateWindow struct {
@@ -132,6 +137,16 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 	h.SetStreamHandler(protocol.ID(ProtocolHelloIDV1), n.handleHelloStream)
 	h.SetStreamHandler(protocol.ID(ProtocolRPCIDV1), n.handleRPCStream)
 
+	if !options.DialOnly && options.RelayMode != RelayModeOff && len(options.RelayAddrs) > 0 {
+		if err := n.reserveConfiguredRelays(ctx); err != nil {
+			if options.RelayMode == RelayModeRequired {
+				_ = h.Close()
+				return nil, fmt.Errorf("reserve relays: %w", err)
+			}
+			n.opts.Logger.Warn("relay reservation unavailable", "err", err)
+		}
+	}
+
 	return n, nil
 }
 
@@ -158,6 +173,7 @@ func (n *Node) AddrStrings() []string {
 	for _, addr := range baseAddrs {
 		baseStrings = append(baseStrings, addr.String())
 	}
+	baseStrings = append(baseStrings, n.relayAdvertiseAddrsSnapshot()...)
 	advertiseStrings := normalizeAddresses(baseStrings)
 	if hasWildcardListenAddress(n.opts.ListenAddrs) {
 		if localIPs, err := discoverInterfaceIPs(); err == nil && len(localIPs) > 0 {
@@ -1061,6 +1077,78 @@ func relayPeerIDFromCircuitAddress(address string) string {
 	return relayPeerID
 }
 
+func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
+	infos, err := parseRelayAddrInfos(n.opts.RelayAddrs)
+	if err != nil {
+		return err
+	}
+	if len(infos) == 0 {
+		n.setRelayAdvertiseAddrs(nil)
+		return fmt.Errorf("no valid relay addresses configured")
+	}
+
+	relayAddrs := make([]string, 0, len(infos))
+	successCount := 0
+	for _, info := range infos {
+		reserveCtx, cancel := withTimeoutIfNeeded(ctx, n.opts.HelloTimeout)
+		reservation, reserveErr := relayclient.Reserve(reserveCtx, n.host, info)
+		cancel()
+
+		if reserveErr != nil {
+			n.emitRelayEvent(RelayEvent{
+				Event:       "relay.reservation.failed",
+				Path:        "relay",
+				RelayPeerID: info.ID.String(),
+				Reason:      reserveErr.Error(),
+				Timestamp:   time.Now().UTC(),
+			})
+			continue
+		}
+
+		successCount++
+		addrs := make([]string, 0, len(reservation.Addrs))
+		for _, addr := range reservation.Addrs {
+			addrs = append(addrs, strings.TrimSpace(addr.String()))
+		}
+		addrs = normalizeAddresses(addrs)
+		if len(addrs) == 0 {
+			addrs = buildRelayCircuitBaseAddrs(info)
+		}
+		relayAddrs = append(relayAddrs, addrs...)
+
+		n.emitRelayEvent(RelayEvent{
+			Event:       "relay.reservation.ok",
+			Path:        "relay",
+			RelayPeerID: info.ID.String(),
+			Reason:      fmt.Sprintf("expires_at=%s", reservation.Expiration.UTC().Format(time.RFC3339)),
+			Timestamp:   time.Now().UTC(),
+		})
+	}
+
+	n.setRelayAdvertiseAddrs(relayAddrs)
+	if successCount == 0 {
+		return fmt.Errorf("no relay reservation succeeded")
+	}
+	return nil
+}
+
+func (n *Node) setRelayAdvertiseAddrs(addrs []string) {
+	n.relayMu.Lock()
+	n.relayAdvertiseAddrs = normalizeAddresses(addrs)
+	n.relayMu.Unlock()
+}
+
+func (n *Node) relayAdvertiseAddrsSnapshot() []string {
+	n.relayMu.RLock()
+	defer n.relayMu.RUnlock()
+	if len(n.relayAdvertiseAddrs) == 0 {
+		return nil
+	}
+	out := make([]string, len(n.relayAdvertiseAddrs))
+	copy(out, n.relayAdvertiseAddrs)
+	return out
+}
+
 func (n *Node) emitRelayEvent(event RelayEvent) {
 	if n == nil || n.opts.OnRelayEvent == nil {
 		return
@@ -1077,6 +1165,91 @@ func (n *Node) emitRelayEvent(event RelayEvent) {
 		event.Timestamp = time.Now().UTC()
 	}
 	n.opts.OnRelayEvent(event)
+}
+
+func parseRelayAddrInfos(rawAddresses []string) ([]peer.AddrInfo, error) {
+	type relayInfoBuilder struct {
+		id    peer.ID
+		addrs map[string]ma.Multiaddr
+	}
+
+	builders := map[string]*relayInfoBuilder{}
+	for _, raw := range normalizeAddresses(rawAddresses) {
+		lower := strings.ToLower(strings.TrimSpace(raw))
+		if strings.Contains(lower, "/p2p-circuit") {
+			return nil, fmt.Errorf("relay address %q must not include /p2p-circuit", raw)
+		}
+		info, err := peer.AddrInfoFromString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid relay address %q: %w", raw, err)
+		}
+		if info == nil || info.ID == "" {
+			return nil, fmt.Errorf("invalid relay address %q: missing relay peer id", raw)
+		}
+		if len(info.Addrs) == 0 {
+			return nil, fmt.Errorf("invalid relay address %q: missing transport address", raw)
+		}
+
+		key := info.ID.String()
+		builder, ok := builders[key]
+		if !ok {
+			builder = &relayInfoBuilder{
+				id:    info.ID,
+				addrs: map[string]ma.Multiaddr{},
+			}
+			builders[key] = builder
+		}
+		for _, addr := range info.Addrs {
+			builder.addrs[addr.String()] = addr
+		}
+	}
+
+	if len(builders) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]string, 0, len(builders))
+	for key := range builders {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	out := make([]peer.AddrInfo, 0, len(keys))
+	for _, key := range keys {
+		builder := builders[key]
+		addrs := make([]ma.Multiaddr, 0, len(builder.addrs))
+		for _, addr := range builder.addrs {
+			addrs = append(addrs, addr)
+		}
+		sort.Slice(addrs, func(i, j int) bool {
+			return addrs[i].String() < addrs[j].String()
+		})
+		out = append(out, peer.AddrInfo{
+			ID:    builder.id,
+			Addrs: addrs,
+		})
+	}
+	return out, nil
+}
+
+func buildRelayCircuitBaseAddrs(info peer.AddrInfo) []string {
+	if info.ID == "" || len(info.Addrs) == 0 {
+		return nil
+	}
+	relayComponent, err := ma.NewMultiaddr("/p2p/" + info.ID.String())
+	if err != nil {
+		return nil
+	}
+	circuitComponent, err := ma.NewMultiaddr("/p2p-circuit")
+	if err != nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(info.Addrs))
+	for _, relayAddr := range info.Addrs {
+		out = append(out, relayAddr.Encapsulate(relayComponent).Encapsulate(circuitComponent).String())
+	}
+	return normalizeAddresses(out)
 }
 
 func (n *Node) hasFreshSession(peerID string) bool {
@@ -1279,6 +1452,12 @@ func normalizeNodeOptions(opts NodeOptions) (NodeOptions, error) {
 		return NodeOptions{}, err
 	}
 	opts.RelayMode = relayMode
+	opts.RelayAddrs = normalizeAddresses(opts.RelayAddrs)
+	if len(opts.RelayAddrs) > 0 {
+		if _, err := parseRelayAddrInfos(opts.RelayAddrs); err != nil {
+			return NodeOptions{}, err
+		}
+	}
 
 	if opts.DialAddrTimeout <= 0 {
 		opts.DialAddrTimeout = DefaultDialAddrTimeout

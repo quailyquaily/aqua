@@ -131,3 +131,61 @@ func TestContactDisplayLabel(t *testing.T) {
 		}
 	})
 }
+
+func TestSplitDirectAndRelayAddresses(t *testing.T) {
+	t.Parallel()
+
+	addresses := []string{
+		"/ip4/127.0.0.1/tcp/6371/p2p/12D3KooWDirectPeer",
+		"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWTargetPeer",
+	}
+	direct, relay := splitDirectAndRelayAddresses(addresses)
+	if len(direct) != 1 {
+		t.Fatalf("direct length mismatch: got %d want 1", len(direct))
+	}
+	if len(relay) != 1 {
+		t.Fatalf("relay length mismatch: got %d want 1", len(relay))
+	}
+}
+
+func TestBuildRelayAdvertiseAddresses(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := aqua.GenerateIdentity(time.Date(2026, 2, 22, 13, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	localIdentity, err := aqua.GenerateIdentity(time.Date(2026, 2, 22, 13, 0, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(local) error = %v", err)
+	}
+
+	relayEndpoint := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", relayIdentity.PeerID)
+	addresses, err := buildRelayAdvertiseAddresses([]string{relayEndpoint}, localIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("buildRelayAdvertiseAddresses() error = %v", err)
+	}
+	if len(addresses) != 1 {
+		t.Fatalf("address length mismatch: got %d want 1", len(addresses))
+	}
+	wantSuffix := fmt.Sprintf("/p2p/%s/p2p-circuit/p2p/%s", relayIdentity.PeerID, localIdentity.PeerID)
+	if !strings.Contains(addresses[0], wantSuffix) {
+		t.Fatalf("relay advertise address mismatch: got %q, want suffix %q", addresses[0], wantSuffix)
+	}
+}
+
+func TestBuildRelayAdvertiseAddresses_RejectsCircuitInput(t *testing.T) {
+	t.Parallel()
+
+	identity, err := aqua.GenerateIdentity(time.Date(2026, 2, 22, 13, 5, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	_, err = buildRelayAdvertiseAddresses(
+		[]string{"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit"},
+		identity.PeerID,
+	)
+	if err == nil {
+		t.Fatalf("expected /p2p-circuit input to be rejected")
+	}
+}

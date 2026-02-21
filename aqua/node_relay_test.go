@@ -125,3 +125,36 @@ func TestRelayPeerIDFromCircuitAddress(t *testing.T) {
 		t.Fatalf("expected empty relay peer id for non-circuit address")
 	}
 }
+
+func TestParseRelayAddrInfos(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := GenerateIdentity(time.Date(2026, 2, 22, 10, 5, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	raw := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", relayIdentity.PeerID)
+
+	infos, err := parseRelayAddrInfos([]string{raw, raw})
+	if err != nil {
+		t.Fatalf("parseRelayAddrInfos() error = %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("relay info count mismatch: got %d want 1", len(infos))
+	}
+	if infos[0].ID.String() != relayIdentity.PeerID {
+		t.Fatalf("relay peer mismatch: got %s want %s", infos[0].ID.String(), relayIdentity.PeerID)
+	}
+	if len(infos[0].Addrs) != 1 {
+		t.Fatalf("relay addr count mismatch: got %d want 1", len(infos[0].Addrs))
+	}
+}
+
+func TestParseRelayAddrInfos_RejectsCircuitEndpoint(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseRelayAddrInfos([]string{"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit"})
+	if err == nil {
+		t.Fatalf("expected relay endpoint with /p2p-circuit to be rejected")
+	}
+}

@@ -452,6 +452,59 @@ func normalizeAddressList(values []string) []string {
 	return out
 }
 
+func splitDirectAndRelayAddresses(addresses []string) ([]string, []string) {
+	direct := make([]string, 0, len(addresses))
+	relay := make([]string, 0, len(addresses))
+	for _, raw := range normalizeAddressList(addresses) {
+		if strings.Contains(strings.ToLower(raw), "/p2p-circuit") {
+			relay = append(relay, raw)
+			continue
+		}
+		direct = append(direct, raw)
+	}
+	return direct, relay
+}
+
+func buildRelayAdvertiseAddresses(relayEndpoints []string, targetPeerID string) ([]string, error) {
+	targetPeerID = strings.TrimSpace(targetPeerID)
+	if targetPeerID == "" {
+		return nil, fmt.Errorf("target peer id is required")
+	}
+	if _, err := peer.Decode(targetPeerID); err != nil {
+		return nil, fmt.Errorf("invalid target peer id %q: %w", targetPeerID, err)
+	}
+	targetComponent, err := ma.NewMultiaddr("/p2p/" + targetPeerID)
+	if err != nil {
+		return nil, fmt.Errorf("build target peer component: %w", err)
+	}
+	circuitComponent, err := ma.NewMultiaddr("/p2p-circuit")
+	if err != nil {
+		return nil, fmt.Errorf("build relay circuit component: %w", err)
+	}
+
+	out := make([]string, 0, len(relayEndpoints))
+	for _, raw := range normalizeAddressList(relayEndpoints) {
+		if strings.Contains(strings.ToLower(raw), "/p2p-circuit") {
+			return nil, fmt.Errorf("relay endpoint must not include /p2p-circuit: %s", raw)
+		}
+		info, err := peer.AddrInfoFromString(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid relay endpoint %q: %w", raw, err)
+		}
+		if info == nil || info.ID == "" {
+			return nil, fmt.Errorf("invalid relay endpoint %q: missing relay peer id", raw)
+		}
+		relayPeerComponent, err := ma.NewMultiaddr("/p2p/" + info.ID.String())
+		if err != nil {
+			return nil, fmt.Errorf("build relay peer component for %q: %w", raw, err)
+		}
+		for _, relayTransportAddr := range info.Addrs {
+			out = append(out, relayTransportAddr.Encapsulate(relayPeerComponent).Encapsulate(circuitComponent).Encapsulate(targetComponent).String())
+		}
+	}
+	return normalizeAddressList(out), nil
+}
+
 func serviceFromCmd(cmd *cobra.Command) *aqua.Service {
 	dir, _ := cmd.Flags().GetString("dir")
 	dir = strings.TrimSpace(dir)

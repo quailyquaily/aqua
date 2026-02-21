@@ -61,6 +61,7 @@ func BuildSignedContactCard(identity Identity, addresses []string, minProtocol i
 		NodeUUID:             strings.TrimSpace(identity.NodeUUID),
 		PeerID:               peerID.String(),
 		NodeID:               NodeIDFromPeerID(peerID.String()),
+		Nickname:             strings.TrimSpace(identity.Nickname),
 		IdentityPubEd25519:   strings.TrimSpace(identity.IdentityPubEd25519),
 		Addresses:            normalizedAddresses,
 		MinSupportedProtocol: minProtocol,

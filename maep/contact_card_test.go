@@ -14,6 +14,7 @@ func TestBuildAndVerifyContactCard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
+	identity.Nickname = "alice"
 
 	addr := fmt.Sprintf("/dns4/example.com/udp/6371/quic-v1/p2p/%s", identity.PeerID)
 	card, err := BuildSignedContactCard(identity, []string{addr}, 1, 1, now, nil)
@@ -32,6 +33,9 @@ func TestBuildAndVerifyContactCard(t *testing.T) {
 	}
 	if parsed.Card.Payload.PeerID != identity.PeerID {
 		t.Fatalf("peer_id mismatch: got %s want %s", parsed.Card.Payload.PeerID, identity.PeerID)
+	}
+	if parsed.Card.Payload.Nickname != identity.Nickname {
+		t.Fatalf("nickname mismatch: got %q want %q", parsed.Card.Payload.Nickname, identity.Nickname)
 	}
 }
 

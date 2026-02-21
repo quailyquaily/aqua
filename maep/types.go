@@ -39,6 +39,7 @@ type Identity struct {
 	NodeUUID            string    `json:"node_uuid"`
 	PeerID              string    `json:"peer_id"`
 	NodeID              string    `json:"node_id"`
+	Nickname            string    `json:"nickname,omitempty"`
 	IdentityPubEd25519  string    `json:"identity_pub_ed25519"`
 	IdentityPrivEd25519 string    `json:"identity_priv_ed25519"`
 	CreatedAt           time.Time `json:"created_at"`
@@ -50,6 +51,7 @@ type ContactCardPayload struct {
 	NodeUUID             string     `json:"node_uuid"`
 	PeerID               string     `json:"peer_id"`
 	NodeID               string     `json:"node_id,omitempty"`
+	Nickname             string     `json:"nickname,omitempty"`
 	IdentityPubEd25519   string     `json:"identity_pub_ed25519"`
 	Addresses            []string   `json:"addresses"`
 	MinSupportedProtocol int        `json:"min_supported_protocol"`
@@ -83,6 +85,7 @@ type Contact struct {
 	PeerID               string     `json:"peer_id"`
 	NodeID               string     `json:"node_id"`
 	DisplayName          string     `json:"display_name,omitempty"`
+	Nickname             string     `json:"nickname,omitempty"`
 	IdentityPubEd25519   string     `json:"identity_pub_ed25519"`
 	Addresses            []string   `json:"addresses"`
 	MinSupportedProtocol int        `json:"min_supported_protocol"`

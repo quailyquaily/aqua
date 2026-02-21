@@ -97,3 +97,37 @@ func TestExtractPeerIDFromDialAddress(t *testing.T) {
 		}
 	})
 }
+
+func TestContactDisplayLabel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prefers display name", func(t *testing.T) {
+		t.Parallel()
+
+		label := contactDisplayLabel(maep.Contact{
+			DisplayName: "  teammate  ",
+			Nickname:    "alice",
+		})
+		if label != "teammate" {
+			t.Fatalf("label mismatch: got %q want %q", label, "teammate")
+		}
+	})
+
+	t.Run("falls back to nickname", func(t *testing.T) {
+		t.Parallel()
+
+		label := contactDisplayLabel(maep.Contact{Nickname: "  alice  "})
+		if label != "alice" {
+			t.Fatalf("label mismatch: got %q want %q", label, "alice")
+		}
+	})
+
+	t.Run("returns empty when both are missing", func(t *testing.T) {
+		t.Parallel()
+
+		label := contactDisplayLabel(maep.Contact{})
+		if label != "" {
+			t.Fatalf("expected empty label, got %q", label)
+		}
+	})
+}

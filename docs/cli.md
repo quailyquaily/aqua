@@ -10,6 +10,7 @@ Machine A:
 
 ```bash
 aqua init
+aqua id "alice"
 aqua id
 ```
 
@@ -17,6 +18,7 @@ Machine B:
 
 ```bash
 aqua init
+aqua id "bob"
 aqua id
 ```
 
@@ -93,6 +95,7 @@ Machine A:
 
 ```bash
 aqua init
+aqua id "alice"
 aqua id
 ```
 
@@ -100,6 +103,7 @@ Machine B:
 
 ```bash
 aqua init
+aqua id "bob"
 aqua id
 ```
 
@@ -186,12 +190,17 @@ Flags:
 Usage:
 
 ```bash
-aqua id [--json]
+aqua id [nickname] [--json]
 ```
 
 Flags:
 
 - `--json`: print structured JSON output.
+
+Behavior notes:
+
+- With no `nickname` argument, show current identity info.
+- With `nickname`, update local identity nickname, then print identity.
 
 ### Contact Cards
 
@@ -239,6 +248,10 @@ Flags:
 
 - `--json`: print structured JSON output.
 
+Behavior notes:
+
+- Text output uses `display_name` first; if empty, it falls back to remote-reported `nickname`.
+
 #### `aqua contacts import`
 
 Usage:
@@ -271,6 +284,7 @@ Behavior notes:
 - Requires peer support for RPC method `agent.card.get`.
 - Does not require prior contact import for the target peer.
 - Without `--verify`, imported contact starts as unverified trust state (`tofu` by default).
+- Remote card `nickname` is imported into contact metadata.
 
 #### `aqua contacts del`
 
@@ -291,6 +305,10 @@ aqua contacts show <peer_id> [--json]
 Flags:
 
 - `--json`: print structured JSON output.
+
+Behavior notes:
+
+- Output includes both local `display_name` and remote-reported `nickname`.
 
 #### `aqua contacts verify`
 

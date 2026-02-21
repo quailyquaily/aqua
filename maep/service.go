@@ -51,6 +51,32 @@ func (s *Service) GetIdentity(ctx context.Context) (Identity, bool, error) {
 	return s.store.GetIdentity(ctx)
 }
 
+func (s *Service) SetIdentityNickname(ctx context.Context, nickname string, now time.Time) (Identity, error) {
+	if s == nil || s.store == nil {
+		return Identity{}, fmt.Errorf("nil maep service")
+	}
+
+	identity, ok, err := s.store.GetIdentity(ctx)
+	if err != nil {
+		return Identity{}, err
+	}
+	if !ok {
+		return Identity{}, fmt.Errorf("identity not found; run `aqua init`")
+	}
+
+	trimmedNickname := strings.TrimSpace(nickname)
+	if identity.Nickname == trimmedNickname {
+		return identity, nil
+	}
+
+	identity.Nickname = trimmedNickname
+	identity.UpdatedAt = normalizedNow(now)
+	if err := s.store.PutIdentity(ctx, identity); err != nil {
+		return Identity{}, err
+	}
+	return identity, nil
+}
+
 func (s *Service) ExportContactCard(ctx context.Context, addresses []string, minProtocol int, maxProtocol int, now time.Time, expiresAt *time.Time) (ContactCard, []byte, error) {
 	identity, ok, err := s.GetIdentity(ctx)
 	if err != nil {
@@ -135,6 +161,7 @@ func (s *Service) ImportContactCard(ctx context.Context, rawCard []byte, display
 		PeerID:               payload.PeerID,
 		NodeID:               payload.NodeID,
 		DisplayName:          strings.TrimSpace(displayName),
+		Nickname:             strings.TrimSpace(payload.Nickname),
 		IdentityPubEd25519:   payload.IdentityPubEd25519,
 		Addresses:            append([]string(nil), payload.Addresses...),
 		MinSupportedProtocol: payload.MinSupportedProtocol,

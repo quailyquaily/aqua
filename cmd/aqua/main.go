@@ -101,16 +101,29 @@ func newInitCmd() *cobra.Command {
 func newIDCmd() *cobra.Command {
 	var outputJSON bool
 	cmd := &cobra.Command{
-		Use:   "id",
-		Short: "Show local MAEP identity",
+		Use:   "id [nickname]",
+		Short: "Show local MAEP identity or set nickname",
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			identity, ok, err := svc.GetIdentity(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("identity not found; run `aqua init`")
+			var (
+				identity maep.Identity
+				ok       bool
+				err      error
+			)
+			if len(args) == 1 {
+				identity, err = svc.SetIdentityNickname(cmd.Context(), args[0], time.Now().UTC())
+				if err != nil {
+					return err
+				}
+			} else {
+				identity, ok, err = svc.GetIdentity(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("identity not found; run `aqua init`")
+				}
 			}
 
 			fingerprint, _ := maep.FingerprintGrouped(identity.IdentityPubEd25519)
@@ -118,6 +131,7 @@ func newIDCmd() *cobra.Command {
 				"node_uuid":            identity.NodeUUID,
 				"peer_id":              identity.PeerID,
 				"node_id":              identity.NodeID,
+				"nickname":             identity.Nickname,
 				"identity_pub_ed25519": identity.IdentityPubEd25519,
 				"fingerprint":          fingerprint,
 				"created_at":           identity.CreatedAt,
@@ -129,10 +143,11 @@ func newIDCmd() *cobra.Command {
 
 			_, _ = fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"node_uuid: %s\npeer_id: %s\nnode_id: %s\nidentity_pub_ed25519: %s\nfingerprint: %s\ncreated_at: %s\nupdated_at: %s\n",
+				"node_uuid: %s\npeer_id: %s\nnode_id: %s\nnickname: %s\nidentity_pub_ed25519: %s\nfingerprint: %s\ncreated_at: %s\nupdated_at: %s\n",
 				identity.NodeUUID,
 				identity.PeerID,
 				identity.NodeID,
+				identity.Nickname,
 				identity.IdentityPubEd25519,
 				fingerprint,
 				identity.CreatedAt.UTC().Format(time.RFC3339),
@@ -252,7 +267,7 @@ func newContactsListCmd() *cobra.Command {
 				return nil
 			}
 			for _, c := range items {
-				display := strings.TrimSpace(c.DisplayName)
+				display := contactDisplayLabel(c)
 				if display == "" {
 					display = "-"
 				}
@@ -361,6 +376,7 @@ func newContactsAddCmd() *cobra.Command {
 					"status":      status,
 					"peer_id":     contact.PeerID,
 					"node_uuid":   contact.NodeUUID,
+					"nickname":    contact.Nickname,
 					"trust_state": contact.TrustState,
 					"verified":    verify,
 					"fingerprint": fingerprint,
@@ -424,6 +440,7 @@ func newContactsShowCmd() *cobra.Command {
 				"node_uuid":              contact.NodeUUID,
 				"node_id":                contact.NodeID,
 				"display_name":           contact.DisplayName,
+				"nickname":               contact.Nickname,
 				"identity_pub_ed25519":   contact.IdentityPubEd25519,
 				"fingerprint":            fingerprint,
 				"addresses":              contact.Addresses,
@@ -437,7 +454,7 @@ func newContactsShowCmd() *cobra.Command {
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), view)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "peer_id: %s\nnode_uuid: %s\nnode_id: %s\ndisplay_name: %s\ntrust_state: %s\nfingerprint: %s\n", contact.PeerID, contact.NodeUUID, contact.NodeID, contact.DisplayName, contact.TrustState, fingerprint)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "peer_id: %s\nnode_uuid: %s\nnode_id: %s\ndisplay_name: %s\nnickname: %s\ntrust_state: %s\nfingerprint: %s\n", contact.PeerID, contact.NodeUUID, contact.NodeID, contact.DisplayName, contact.Nickname, contact.TrustState, fingerprint)
 			for _, addr := range contact.Addresses {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "address: %s\n", addr)
 			}
@@ -881,6 +898,14 @@ func resolvePushMessage(rawMessage string, args []string) (string, error) {
 		return flagMessage, nil
 	}
 	return "", fmt.Errorf("message is required (positional argument or --message)")
+}
+
+func contactDisplayLabel(contact maep.Contact) string {
+	label := strings.TrimSpace(contact.DisplayName)
+	if label != "" {
+		return label
+	}
+	return strings.TrimSpace(contact.Nickname)
 }
 
 func extractPeerIDFromDialAddress(rawAddress string) (string, error) {

@@ -15,11 +15,58 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 - Override with: `--dir <path>` or `AQUA_DIR`
 - Common listen port in examples: `6371` and `6372` (for relay)
 - Usually no need to run `aqua id "<nickname>"` auto-initializes identity on first use, and explicitly to set a nickname, or check your peer ID for sharing with others.
-- Default relay host for relay mode: `aqua-relay.mistermorph.com`
-- Default relay endpoint (TCP): `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
-- Optional relay endpoint (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+- Official relay host for relay mode: `aqua-relay.mistermorph.com`
+- Official relay endpoint
+  - TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+  - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 
+## Quick Start with Official Relay Node (Recommended)
 
+### Get your peer ID and optionally set a nickname:
+
+```bash
+aqua id <nickname>
+```
+
+### Get your relay-aware address (relay-circuit address): 
+
+```
+/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW/p2p-circuit/p2p/<YOUR_PEER_ID>
+```
+
+in which, `<YOUR_PEER_ID>` is the peer ID printed by `aqua id` command. Share this relay-circuit address with others for them to add it into their contacts.
+
+### Serve for listening and message handling
+
+When relay mode is needed, prefer the official relay server by default:
+
+```bash
+aqua serve --relay-mode auto \
+  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
+  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E
+```
+
+If you can't run `serve` cmd as a background process, you can use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
+
+### Add others relay-circuit address into your contacts:
+
+```bash
+aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID>
+```
+
+in which, `<TARGET_PEER_ID>` is the peer ID of the others you want to communicate with.
+
+### Send message via `aqua send`:
+
+```bash
+aqua send <TARGET_PEER_ID> "hello via relay"
+```
+
+### Check unread messages:
+
+```bash
+aqua inbox list --unread
+```
 
 ## Quick Workflow (Two Agents)
 
@@ -67,22 +114,6 @@ aqua send <PEER_ID> "hello"
 
 ```bash
 aqua inbox list --unread
-```
-
-## Relay Mode with default relay node
-
-When relay mode is needed, prefer the official relay server by default:
-
-```bash
-aqua serve --relay-mode auto \
-  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
-  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E
-```
-
-For `aqua contacts add`, prefer the relay-circuit address printed by peer `aqua serve` output. If composing manually:
-
-```bash
-aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID>
 ```
 
 ## Message Operations

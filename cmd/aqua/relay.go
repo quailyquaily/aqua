@@ -75,6 +75,7 @@ func newRelayServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			addresses = expandAdvertiseAddressesForListenAddrs(addresses, resolvedListenAddrs)
 			allowlistOut := sortedAllowlistStrings(allowedPeers)
 
 			if outputJSON {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -97,5 +98,92 @@ func TestRelayAllowlistACL(t *testing.T) {
 	}
 	if acl.AllowConnect(srcID, nil, otherID) {
 		t.Fatalf("expected connect to non-allowlisted destination to fail")
+	}
+}
+
+func TestHasWildcardListenAddress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		input  []string
+		expect bool
+	}{
+		{
+			name:   "ip4 wildcard",
+			input:  []string{"/ip4/0.0.0.0/tcp/6371"},
+			expect: true,
+		},
+		{
+			name:   "ip6 wildcard",
+			input:  []string{"/ip6/::/tcp/6371"},
+			expect: true,
+		},
+		{
+			name:   "concrete address",
+			input:  []string{"/ip4/127.0.0.1/tcp/6371"},
+			expect: false,
+		},
+		{
+			name:   "invalid ignored",
+			input:  []string{"not-a-multiaddr"},
+			expect: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := hasWildcardListenAddress(tc.input); got != tc.expect {
+				t.Fatalf("hasWildcardListenAddress() = %v, want %v", got, tc.expect)
+			}
+		})
+	}
+}
+
+func TestExpandAdvertiseAddressesWithIPs(t *testing.T) {
+	t.Parallel()
+
+	addresses := []string{
+		"/ip4/127.0.0.1/tcp/6371",
+		"/ip6/::1/tcp/6372/ws",
+	}
+	localIPs := []net.IP{
+		net.ParseIP("10.20.30.40"),
+		net.ParseIP("2001:db8::40"),
+	}
+
+	got := expandAdvertiseAddressesWithIPs(addresses, localIPs)
+	gotSet := map[string]bool{}
+	for _, addr := range got {
+		gotSet[addr] = true
+	}
+	expect := []string{
+		"/ip4/127.0.0.1/tcp/6371",
+		"/ip4/10.20.30.40/tcp/6371",
+		"/ip6/::1/tcp/6372/ws",
+		"/ip6/2001:db8::40/tcp/6372/ws",
+	}
+	for _, addr := range expect {
+		if !gotSet[addr] {
+			t.Fatalf("missing expanded address %q from %v", addr, got)
+		}
+	}
+	if len(gotSet) != len(expect) {
+		t.Fatalf("expanded address count mismatch: got %d want %d (%v)", len(gotSet), len(expect), got)
+	}
+}
+
+func TestExpandAdvertiseAddressesForListenAddrs_NoWildcard(t *testing.T) {
+	t.Parallel()
+
+	addresses := []string{" /ip4/0.0.0.0/tcp/6371 ", "/ip4/0.0.0.0/tcp/6371"}
+	listenAddrs := []string{"/ip4/127.0.0.1/tcp/6371"}
+
+	got := expandAdvertiseAddressesForListenAddrs(addresses, listenAddrs)
+	if len(got) != 1 || got[0] != "/ip4/0.0.0.0/tcp/6371" {
+		t.Fatalf("expandAdvertiseAddressesForListenAddrs() = %v, want [/ip4/0.0.0.0/tcp/6371]", got)
 	}
 }

@@ -160,6 +160,86 @@ func expandConfiguredDialAddresses(addresses []string) []string {
 	return expandConfiguredDialAddressesWithIPs(addresses, localIPs)
 }
 
+func expandAdvertiseAddressesForListenAddrs(addresses []string, listenAddrs []string) []string {
+	normalized := normalizeAddressList(addresses)
+	if !hasWildcardListenAddress(listenAddrs) {
+		return normalized
+	}
+	localIPs, err := discoverLocalInterfaceIPs()
+	if err != nil || len(localIPs) == 0 {
+		return normalized
+	}
+	return expandAdvertiseAddressesWithIPs(normalized, localIPs)
+}
+
+func hasWildcardListenAddress(listenAddrs []string) bool {
+	for _, raw := range normalizeAddressList(listenAddrs) {
+		addr, err := ma.NewMultiaddr(raw)
+		if err != nil {
+			continue
+		}
+		if value, err := addr.ValueForProtocol(ma.P_IP4); err == nil {
+			if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+				return true
+			}
+		}
+		if value, err := addr.ValueForProtocol(ma.P_IP6); err == nil {
+			if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func expandAdvertiseAddressesWithIPs(addresses []string, localIPs []net.IP) []string {
+	out := make([]string, 0, len(addresses))
+	seen := map[string]bool{}
+	add := func(addr string) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" || seen[addr] {
+			return
+		}
+		seen[addr] = true
+		out = append(out, addr)
+	}
+
+	for _, raw := range normalizeAddressList(addresses) {
+		add(raw)
+		maddr, err := ma.NewMultiaddr(raw)
+		if err != nil {
+			continue
+		}
+
+		if _, err := maddr.ValueForProtocol(ma.P_IP4); err == nil {
+			for _, local := range localIPs {
+				v4 := local.To4()
+				if v4 == nil {
+					continue
+				}
+				replaced, err := replaceMultiaddrIPComponent(maddr, ma.P_IP4, v4.String())
+				if err != nil {
+					continue
+				}
+				add(replaced.String())
+			}
+		}
+		if _, err := maddr.ValueForProtocol(ma.P_IP6); err == nil {
+			for _, local := range localIPs {
+				if local.To4() != nil || local.To16() == nil {
+					continue
+				}
+				replaced, err := replaceMultiaddrIPComponent(maddr, ma.P_IP6, local.String())
+				if err != nil {
+					continue
+				}
+				add(replaced.String())
+			}
+		}
+	}
+	return out
+}
+
 func expandConfiguredDialAddressesWithIPs(addresses []string, localIPs []net.IP) []string {
 	out := make([]string, 0, len(addresses))
 	seen := map[string]bool{}
@@ -224,16 +304,26 @@ func replaceMultiaddrIPComponent(addr ma.Multiaddr, protoCode int, value string)
 	updated := raw
 	switch protoCode {
 	case ma.P_IP4:
-		if strings.Contains(raw, "/ip4/0.0.0.0/") {
-			updated = strings.Replace(raw, "/ip4/0.0.0.0/", "/ip4/"+value+"/", 1)
-		} else if strings.HasSuffix(raw, "/ip4/0.0.0.0") {
-			updated = strings.TrimSuffix(raw, "/ip4/0.0.0.0") + "/ip4/" + value
+		if strings.Contains(raw, "/ip4/") {
+			parts := strings.Split(raw, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				if parts[i] == "ip4" {
+					parts[i+1] = value
+					updated = strings.Join(parts, "/")
+					break
+				}
+			}
 		}
 	case ma.P_IP6:
-		if strings.Contains(raw, "/ip6/::/") {
-			updated = strings.Replace(raw, "/ip6/::/", "/ip6/"+value+"/", 1)
-		} else if strings.HasSuffix(raw, "/ip6/::") {
-			updated = strings.TrimSuffix(raw, "/ip6/::") + "/ip6/" + value
+		if strings.Contains(raw, "/ip6/") {
+			parts := strings.Split(raw, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				if parts[i] == "ip6" {
+					parts[i+1] = value
+					updated = strings.Join(parts, "/")
+					break
+				}
+			}
 		}
 	default:
 		return addr, nil

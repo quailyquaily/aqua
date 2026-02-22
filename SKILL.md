@@ -15,7 +15,8 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 - Override with: `--dir <path>` or `AQUA_DIR`
 - Common listen port in examples: `6371` and `6372` (for relay)
 - Usually no need to run `aqua id "<nickname>"` auto-initializes identity on first use, and explicitly to set a nickname, or check your peer ID for sharing with others.
-- Official relay host for relay mode: `aqua-relay.mistermorph.com`
+- Official `relay_host` for relay mode: `aqua-relay.mistermorph.com`
+- Official `relay_peer_id`: `12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 - Official relay endpoint
   - TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
   - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
@@ -101,8 +102,8 @@ aqua contacts add "<TARGET_PEER_ADDR>" --verify
 ```
 
 * `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity (for example, via fingerprint or a secure channel). Omit `--verify` to add as unverified contact, but be cautious about potential impersonation risks.
-* `<TARGET_PEER_ADDR>` should be the full multiaddr printed by `serve --dryrun`, including the `/p2p/<peer_id>` suffix.
-* For relay mode, use the relay-circuit address printed by `serve` output, which looks like: `/dns4/<relay-host>/tcp/<relay-port>/p2p/<relay_peer_id>/p2p-circuit/p2p/<target_peer_id>`. This ensures the contact is reachable via the relay when direct addresses are not available.
+* `<TARGET_PEER_ADDR>` is other's relay-circuit address. Could be printed by `serve --dryrun` or constructed by `peer_id`.
+* For relay mode, use the relay-circuit address printed by `serve` output, which looks like: `/dns4/<relay_host>/tcp/<relay-port>/p2p/<relay_peer_id>/p2p-circuit/p2p/<target_peer_id>`. This ensures the contact is reachable via the relay when direct addresses are not available.
 
 5. Send:
 

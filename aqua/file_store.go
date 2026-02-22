@@ -214,26 +214,37 @@ func (s *FileStore) DeleteContactByPeerID(ctx context.Context, peerID string) (b
 }
 
 func (s *FileStore) AppendInboxMessage(ctx context.Context, message InboxMessage) error {
+	return s.AppendInboxMessages(ctx, []InboxMessage{message})
+}
+
+func (s *FileStore) AppendInboxMessages(ctx context.Context, messages []InboxMessage) error {
 	if err := s.ensureNotCanceled(ctx); err != nil {
 		return err
+	}
+	if len(messages) == 0 {
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.withStateLock(ctx, func() error {
-		message.MessageID = strings.TrimSpace(message.MessageID)
-		message.FromPeerID = strings.TrimSpace(message.FromPeerID)
-		message.Topic = strings.TrimSpace(message.Topic)
-		message.ContentType = strings.TrimSpace(message.ContentType)
-		message.PayloadBase64 = strings.TrimSpace(message.PayloadBase64)
-		message.IdempotencyKey = strings.TrimSpace(message.IdempotencyKey)
-		message.SessionID = strings.TrimSpace(message.SessionID)
-		message.ReplyTo = strings.TrimSpace(message.ReplyTo)
-		message.Read = false
-		message.ReadAt = nil
-		if message.ReceivedAt.IsZero() {
-			message.ReceivedAt = time.Now().UTC()
+		normalized := make([]InboxMessage, 0, len(messages))
+		for _, message := range messages {
+			message.MessageID = strings.TrimSpace(message.MessageID)
+			message.FromPeerID = strings.TrimSpace(message.FromPeerID)
+			message.Topic = strings.TrimSpace(message.Topic)
+			message.ContentType = strings.TrimSpace(message.ContentType)
+			message.PayloadBase64 = strings.TrimSpace(message.PayloadBase64)
+			message.IdempotencyKey = strings.TrimSpace(message.IdempotencyKey)
+			message.SessionID = strings.TrimSpace(message.SessionID)
+			message.ReplyTo = strings.TrimSpace(message.ReplyTo)
+			message.Read = false
+			message.ReadAt = nil
+			if message.ReceivedAt.IsZero() {
+				message.ReceivedAt = time.Now().UTC()
+			}
+			normalized = append(normalized, message)
 		}
-		return s.appendInboxMessageLocked(message)
+		return s.appendInboxMessagesLocked(normalized)
 	})
 }
 
@@ -659,6 +670,13 @@ func (s *FileStore) loadInboxMessagesLocked() ([]InboxMessage, error) {
 }
 
 func (s *FileStore) appendInboxMessageLocked(message InboxMessage) error {
+	return s.appendInboxMessagesLocked([]InboxMessage{message})
+}
+
+func (s *FileStore) appendInboxMessagesLocked(messages []InboxMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
 	writer, err := fsstore.NewJSONLWriter(s.inboxPathJSONL(), fsstore.JSONLOptions{
 		DirPerm:        0o700,
 		FilePerm:       0o600,
@@ -668,8 +686,10 @@ func (s *FileStore) appendInboxMessageLocked(message InboxMessage) error {
 		return fmt.Errorf("open inbox writer: %w", err)
 	}
 	defer writer.Close()
-	if err := writer.AppendJSON(message); err != nil {
-		return fmt.Errorf("append inbox message: %w", err)
+	for _, message := range messages {
+		if err := writer.AppendJSON(message); err != nil {
+			return fmt.Errorf("append inbox message: %w", err)
+		}
 	}
 	return nil
 }

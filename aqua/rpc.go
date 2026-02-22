@@ -24,6 +24,7 @@ var rpcErrorCodeBySymbol = map[string]int{
 	ErrMethodNotAllowedSymbol:    -32004,
 	ErrPayloadTooLargeSymbol:     -32005,
 	ErrRateLimitedSymbol:         -32006,
+	ErrBusySymbol:                -32010,
 	ErrUnsupportedProtocolSymbol: -32007,
 	ErrInvalidJSONProfileSymbol:  -32008,
 	ErrInvalidContactCardSymbol:  -32009,

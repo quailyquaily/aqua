@@ -311,3 +311,48 @@ func TestFileStoreAppendInboxMessage_DoesNotAutoFillSessionID(t *testing.T) {
 		t.Fatalf("expected empty session_id, got %q", records[0].SessionID)
 	}
 }
+
+func TestFileStoreAppendInboxMessages_Batch(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "aqua")
+	store := NewFileStore(root)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	now := time.Date(2026, 2, 23, 9, 0, 0, 0, time.UTC)
+	batch := []InboxMessage{
+		{
+			MessageID:      "msg-batch-1",
+			FromPeerID:     "12D3KooWpeerBatch",
+			Topic:          "chat.message",
+			ContentType:    "text/plain",
+			PayloadBase64:  "aGVsbG8",
+			IdempotencyKey: "idem-batch-1",
+			ReceivedAt:     now,
+		},
+		{
+			MessageID:      "msg-batch-2",
+			FromPeerID:     "12D3KooWpeerBatch",
+			Topic:          "chat.message",
+			ContentType:    "text/plain",
+			PayloadBase64:  "d29ybGQ",
+			IdempotencyKey: "idem-batch-2",
+			ReceivedAt:     now.Add(time.Second),
+		},
+	}
+	if err := store.AppendInboxMessages(ctx, batch); err != nil {
+		t.Fatalf("AppendInboxMessages() error = %v", err)
+	}
+
+	records, err := store.ListInboxMessages(ctx, "12D3KooWpeerBatch", "", 10)
+	if err != nil {
+		t.Fatalf("ListInboxMessages() error = %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("ListInboxMessages() length mismatch: got %d want 2", len(records))
+	}
+	if records[0].MessageID != "msg-batch-2" || records[1].MessageID != "msg-batch-1" {
+		t.Fatalf("unexpected batch record order/content: %#v", records)
+	}
+}

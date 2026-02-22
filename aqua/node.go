@@ -24,7 +24,15 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
-const sessionFreshWindow = 10 * time.Minute
+const (
+	sessionFreshWindow        = 10 * time.Minute
+	incomingQueueSize         = 4096
+	incomingEnqueueTimeout    = 20 * time.Millisecond
+	incomingFlushMaxBatch     = 256
+	incomingFlushInterval     = 200 * time.Millisecond
+	incomingDedupePrunePeriod = time.Second
+	storeWriteTimeout         = 2 * time.Second
+)
 
 type NodeOptions struct {
 	DialOnly           bool
@@ -65,6 +73,13 @@ type Node struct {
 	rateMu          sync.Mutex
 	pushRateWindows map[string]pushRateWindow
 
+	incomingQueue     chan incomingPushEnvelope
+	incomingCloseOnce sync.Once
+	incomingWG        sync.WaitGroup
+
+	dedupeMu            sync.Mutex
+	incomingDedupeCache map[string]time.Time
+
 	relayMu             sync.RWMutex
 	relayAdvertiseAddrs []string
 }
@@ -72,6 +87,10 @@ type Node struct {
 type pushRateWindow struct {
 	WindowMinute time.Time
 	Count        int
+}
+
+type incomingPushEnvelope struct {
+	message InboxMessage
 }
 
 type helloMessage struct {
@@ -125,17 +144,20 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 	}
 
 	n := &Node{
-		host:            h,
-		svc:             svc,
-		store:           svc.store,
-		local:           identity,
-		opts:            options,
-		sessions:        map[string]HelloResult{},
-		pushRateWindows: map[string]pushRateWindow{},
+		host:                h,
+		svc:                 svc,
+		store:               svc.store,
+		local:               identity,
+		opts:                options,
+		sessions:            map[string]HelloResult{},
+		pushRateWindows:     map[string]pushRateWindow{},
+		incomingQueue:       make(chan incomingPushEnvelope, incomingQueueSize),
+		incomingDedupeCache: map[string]time.Time{},
 	}
 
 	h.SetStreamHandler(protocol.ID(ProtocolHelloIDV1), n.handleHelloStream)
 	h.SetStreamHandler(protocol.ID(ProtocolRPCIDV1), n.handleRPCStream)
+	n.startIncomingWriter()
 
 	if !options.DialOnly && options.RelayMode != RelayModeOff && len(options.RelayAddrs) > 0 {
 		if err := n.reserveConfiguredRelays(ctx); err != nil {
@@ -151,10 +173,15 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 }
 
 func (n *Node) Close() error {
-	if n == nil || n.host == nil {
+	if n == nil {
 		return nil
 	}
-	return n.host.Close()
+	var closeErr error
+	if n.host != nil {
+		closeErr = n.host.Close()
+	}
+	n.stopIncomingWriter()
+	return closeErr
 }
 
 func (n *Node) PeerID() string {
@@ -372,11 +399,176 @@ func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, 
 		ReplyTo:        req.ReplyTo,
 		SentAt:         now,
 	}
-	if err := n.store.AppendOutboxMessage(context.Background(), outboxMessage); err != nil {
+	storeCtx, cancelStore := n.storeContext(context.Background())
+	defer cancelStore()
+	if err := n.store.AppendOutboxMessage(storeCtx, outboxMessage); err != nil {
 		n.opts.Logger.Warn("append outbox message failed", "peer_id", peerID, "err", err)
 	}
 
 	return result, nil
+}
+
+func (n *Node) startIncomingWriter() {
+	if n == nil || n.incomingQueue == nil {
+		return
+	}
+	n.incomingWG.Add(1)
+	go n.runIncomingWriter()
+}
+
+func (n *Node) stopIncomingWriter() {
+	if n == nil {
+		return
+	}
+	n.incomingCloseOnce.Do(func() {
+		if n.incomingQueue != nil {
+			close(n.incomingQueue)
+		}
+		n.incomingWG.Wait()
+	})
+}
+
+func (n *Node) runIncomingWriter() {
+	defer n.incomingWG.Done()
+	if n == nil {
+		return
+	}
+	flushTicker := time.NewTicker(incomingFlushInterval)
+	defer flushTicker.Stop()
+	dedupeTicker := time.NewTicker(incomingDedupePrunePeriod)
+	defer dedupeTicker.Stop()
+
+	batch := make([]incomingPushEnvelope, 0, incomingFlushMaxBatch)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		n.flushIncomingBatch(batch)
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case item, ok := <-n.incomingQueue:
+			if !ok {
+				flush()
+				return
+			}
+			batch = append(batch, item)
+			if len(batch) >= incomingFlushMaxBatch {
+				flush()
+			}
+		case <-flushTicker.C:
+			flush()
+		case now := <-dedupeTicker.C:
+			n.pruneIncomingDedupe(now.UTC())
+		}
+	}
+}
+
+func (n *Node) flushIncomingBatch(batch []incomingPushEnvelope) {
+	if len(batch) == 0 {
+		return
+	}
+	messages := make([]InboxMessage, 0, len(batch))
+	for _, item := range batch {
+		messages = append(messages, item.message)
+	}
+	storeCtx, cancelStore := n.storeContext(context.Background())
+	defer cancelStore()
+	if err := n.store.AppendInboxMessages(storeCtx, messages); err != nil {
+		n.opts.Logger.Warn("append inbox batch failed", "size", len(messages), "err", err)
+	}
+}
+
+func (n *Node) enqueueIncomingPush(item incomingPushEnvelope) (err error) {
+	if n == nil || n.incomingQueue == nil {
+		return WrapProtocolError(ErrBusy, "incoming queue unavailable")
+	}
+	defer func() {
+		if recover() != nil {
+			err = WrapProtocolError(ErrBusy, "incoming queue unavailable")
+		}
+	}()
+	timer := time.NewTimer(incomingEnqueueTimeout)
+	defer timer.Stop()
+	select {
+	case n.incomingQueue <- item:
+		return nil
+	case <-timer.C:
+		return WrapProtocolError(ErrBusy, "incoming queue is full")
+	}
+}
+
+func incomingDedupeCacheKey(fromPeerID string, topic string, idempotencyKey string) string {
+	return strings.TrimSpace(fromPeerID) + "\x1f" + strings.TrimSpace(topic) + "\x1f" + strings.TrimSpace(idempotencyKey)
+}
+
+func (n *Node) reserveIncomingDedupe(fromPeerID string, topic string, idempotencyKey string, now time.Time) (string, bool) {
+	if n == nil {
+		return "", false
+	}
+	cacheKey := incomingDedupeCacheKey(fromPeerID, topic, idempotencyKey)
+	expiresAt := now.Add(n.opts.DedupeTTL)
+
+	n.dedupeMu.Lock()
+	defer n.dedupeMu.Unlock()
+
+	if existingExpiry, ok := n.incomingDedupeCache[cacheKey]; ok && existingExpiry.After(now) {
+		return cacheKey, true
+	}
+	n.incomingDedupeCache[cacheKey] = expiresAt
+	return cacheKey, false
+}
+
+func (n *Node) releaseIncomingDedupe(cacheKey string) {
+	if n == nil || strings.TrimSpace(cacheKey) == "" {
+		return
+	}
+	n.dedupeMu.Lock()
+	delete(n.incomingDedupeCache, cacheKey)
+	n.dedupeMu.Unlock()
+}
+
+func (n *Node) pruneIncomingDedupeLocked(now time.Time) {
+	if len(n.incomingDedupeCache) == 0 {
+		return
+	}
+	for key, expiry := range n.incomingDedupeCache {
+		if !expiry.After(now) {
+			delete(n.incomingDedupeCache, key)
+		}
+	}
+	if len(n.incomingDedupeCache) <= n.opts.DedupeMaxEntries {
+		return
+	}
+	overflow := len(n.incomingDedupeCache) - n.opts.DedupeMaxEntries
+	dropKeys := make([]string, 0, overflow)
+	for key := range n.incomingDedupeCache {
+		dropKeys = append(dropKeys, key)
+		if len(dropKeys) >= overflow {
+			break
+		}
+	}
+	for _, key := range dropKeys {
+		delete(n.incomingDedupeCache, key)
+	}
+}
+
+func (n *Node) pruneIncomingDedupe(now time.Time) {
+	if n == nil {
+		return
+	}
+	n.dedupeMu.Lock()
+	n.pruneIncomingDedupeLocked(now)
+	n.dedupeMu.Unlock()
+}
+
+func (n *Node) storeContext(base context.Context) (context.Context, context.CancelFunc) {
+	if base == nil {
+		base = context.Background()
+	}
+	return withTimeoutIfNeeded(base, storeWriteTimeout)
 }
 
 func (n *Node) DialHello(ctx context.Context, peerID string, addresses []string) (HelloResult, error) {
@@ -620,8 +812,11 @@ func (n *Node) handleHelloStream(stream network.Stream) {
 
 	remotePeer := stream.Conn().RemotePeer().String()
 	n.opts.Logger.Debug("hello stream accepted", "peer_id", remotePeer, "stream_id", stream.ID())
-	if _, err := n.ensurePeerAllowed(context.Background(), remotePeer); err != nil {
-		n.opts.Logger.Warn("reject hello from unauthorized peer", "peer_id", remotePeer, "err", err)
+	allowedCtx, cancelAllowed := n.storeContext(context.Background())
+	_, allowedErr := n.ensurePeerAllowed(allowedCtx, remotePeer)
+	cancelAllowed()
+	if allowedErr != nil {
+		n.opts.Logger.Warn("reject hello from unauthorized peer", "peer_id", remotePeer, "err", allowedErr)
 		_ = stream.Conn().Close()
 		return
 	}
@@ -741,9 +936,12 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 	}
 
 	if rpcMethodRequiresAuthorizedPeer(req.Method) {
-		if _, err := n.ensurePeerAllowed(context.Background(), remotePeerID); err != nil {
+		allowedCtx, cancelAllowed := n.storeContext(context.Background())
+		_, allowedErr := n.ensurePeerAllowed(allowedCtx, remotePeerID)
+		cancelAllowed()
+		if allowedErr != nil {
 			if req.HasID {
-				_, _ = n.writeRPCError(stream, req.ID, ErrUnauthorizedSymbol, err.Error())
+				_, _ = n.writeRPCError(stream, req.ID, ErrUnauthorizedSymbol, allowedErr.Error())
 			}
 			_ = stream.Conn().Close()
 			return
@@ -791,14 +989,16 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 		if len(addresses) == 0 {
 			return nil, ErrInvalidParamsSymbol, "addresses is required"
 		}
+		exportCtx, cancelExport := n.storeContext(context.Background())
 		_, rawCard, err := n.svc.ExportContactCard(
-			context.Background(),
+			exportCtx,
 			addresses,
 			ProtocolVersionV1,
 			ProtocolVersionV1,
 			time.Now().UTC(),
 			nil,
 		)
+		cancelExport()
 		if err != nil {
 			symbol := SymbolOf(err)
 			if strings.TrimSpace(symbol) == "" {
@@ -852,61 +1052,47 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 			return nil, ErrInvalidParamsSymbol, err.Error()
 		}
 
-		deduped := false
-		if _, exists, err := n.store.GetDedupeRecord(context.Background(), fromPeerID, params.Topic, params.IdempotencyKey); err != nil {
-			n.opts.Logger.Warn("dedupe lookup failed", "peer_id", fromPeerID, "err", err)
-		} else if exists {
-			deduped = true
-		}
-		if !deduped {
-			record := DedupeRecord{
-				FromPeerID:     fromPeerID,
-				Topic:          params.Topic,
-				IdempotencyKey: params.IdempotencyKey,
-				CreatedAt:      now,
-				ExpiresAt:      now.Add(n.opts.DedupeTTL),
-			}
-			if err := n.store.PutDedupeRecord(context.Background(), record); err != nil {
-				n.opts.Logger.Warn("dedupe save failed", "peer_id", fromPeerID, "err", err)
-			}
-			if _, err := n.store.PruneDedupeRecords(context.Background(), now, n.opts.DedupeMaxEntries); err != nil {
-				n.opts.Logger.Warn("dedupe prune failed", "peer_id", fromPeerID, "err", err)
-			}
+		dedupeKey, deduped := n.reserveIncomingDedupe(fromPeerID, params.Topic, params.IdempotencyKey, now)
+		if deduped {
+			return rpcDataPushResult{Accepted: true, Deduped: true}, "", ""
 		}
 
-		if !deduped {
-			inboxMessage := InboxMessage{
-				MessageID:      uuid.NewString(),
-				FromPeerID:     fromPeerID,
-				Topic:          params.Topic,
-				ContentType:    params.ContentType,
-				PayloadBase64:  params.PayloadBase64,
-				IdempotencyKey: params.IdempotencyKey,
-				SessionID:      sessionID,
-				ReplyTo:        replyTo,
-				ReceivedAt:     now,
-			}
-			if err := n.store.AppendInboxMessage(context.Background(), inboxMessage); err != nil {
-				n.opts.Logger.Warn("append inbox message failed", "peer_id", fromPeerID, "err", err)
-			}
-
-			event := DataPushEvent{
-				FromPeerID:     fromPeerID,
-				Topic:          params.Topic,
-				ContentType:    params.ContentType,
-				PayloadBase64:  params.PayloadBase64,
-				PayloadBytes:   payloadBytes,
-				IdempotencyKey: params.IdempotencyKey,
-				SessionID:      sessionID,
-				ReplyTo:        replyTo,
-				ReceivedAt:     now,
-				Deduped:        false,
-			}
-			if n.opts.OnDataPush != nil {
-				n.opts.OnDataPush(event)
-			}
+		inboxMessage := InboxMessage{
+			MessageID:      uuid.NewString(),
+			FromPeerID:     fromPeerID,
+			Topic:          params.Topic,
+			ContentType:    params.ContentType,
+			PayloadBase64:  params.PayloadBase64,
+			IdempotencyKey: params.IdempotencyKey,
+			SessionID:      sessionID,
+			ReplyTo:        replyTo,
+			ReceivedAt:     now,
 		}
-		return rpcDataPushResult{Accepted: true, Deduped: deduped}, "", ""
+		if err := n.enqueueIncomingPush(incomingPushEnvelope{message: inboxMessage}); err != nil {
+			n.releaseIncomingDedupe(dedupeKey)
+			symbol := SymbolOf(err)
+			if strings.TrimSpace(symbol) == "" {
+				symbol = ErrBusySymbol
+			}
+			return nil, symbol, err.Error()
+		}
+
+		event := DataPushEvent{
+			FromPeerID:     fromPeerID,
+			Topic:          params.Topic,
+			ContentType:    params.ContentType,
+			PayloadBase64:  params.PayloadBase64,
+			PayloadBytes:   payloadBytes,
+			IdempotencyKey: params.IdempotencyKey,
+			SessionID:      sessionID,
+			ReplyTo:        replyTo,
+			ReceivedAt:     now,
+			Deduped:        false,
+		}
+		if n.opts.OnDataPush != nil {
+			n.opts.OnDataPush(event)
+		}
+		return rpcDataPushResult{Accepted: true, Deduped: false}, "", ""
 	default:
 		return nil, ErrMethodNotAllowedSymbol, "method=" + req.Method
 	}
@@ -1633,6 +1819,8 @@ func protocolErrorBySymbol(symbol string) *ProtocolError {
 		return ErrPayloadTooLarge
 	case ErrRateLimitedSymbol:
 		return ErrRateLimited
+	case ErrBusySymbol:
+		return ErrBusy
 	case ErrUnsupportedProtocolSymbol:
 		return ErrUnsupportedProtocol
 	case ErrInvalidJSONProfileSymbol:

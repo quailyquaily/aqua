@@ -12,6 +12,7 @@ const (
 	ErrMethodNotAllowedSymbol    = "ERR_METHOD_NOT_ALLOWED"
 	ErrPayloadTooLargeSymbol     = "ERR_PAYLOAD_TOO_LARGE"
 	ErrRateLimitedSymbol         = "ERR_RATE_LIMITED"
+	ErrBusySymbol                = "ERR_BUSY"
 	ErrUnsupportedProtocolSymbol = "ERR_UNSUPPORTED_PROTOCOL"
 	ErrInvalidJSONProfileSymbol  = "ERR_INVALID_JSON_PROFILE"
 	ErrInvalidContactCardSymbol  = "ERR_INVALID_CONTACT_CARD"
@@ -50,6 +51,7 @@ var (
 	ErrMethodNotAllowed    = &ProtocolError{Symbol: ErrMethodNotAllowedSymbol, Message: "method not allowed"}
 	ErrPayloadTooLarge     = &ProtocolError{Symbol: ErrPayloadTooLargeSymbol, Message: "payload too large"}
 	ErrRateLimited         = &ProtocolError{Symbol: ErrRateLimitedSymbol, Message: "rate limited"}
+	ErrBusy                = &ProtocolError{Symbol: ErrBusySymbol, Message: "busy"}
 	ErrUnsupportedProtocol = &ProtocolError{Symbol: ErrUnsupportedProtocolSymbol, Message: "unsupported protocol"}
 	ErrInvalidParams       = &ProtocolError{Symbol: ErrInvalidParamsSymbol, Message: "invalid params"}
 )

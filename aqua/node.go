@@ -458,6 +458,11 @@ func (n *Node) callRPC(ctx context.Context, peerID string, addresses []string, m
 
 func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dialAddresses []string, method string, params any, notification bool, retriedUnsupported bool) (json.RawMessage, error) {
 	if rpcMethodRequiresSession(method) && !n.hasFreshSession(expectedPeerID.String()) {
+		n.opts.Logger.Debug(
+			"rpc session missing; negotiating hello",
+			"peer_id", expectedPeerID.String(),
+			"method", method,
+		)
 		if _, err := n.dialHelloResolved(ctx, expectedPeerID, dialAddresses); err != nil {
 			return nil, err
 		}
@@ -469,11 +474,23 @@ func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dial
 	if err := n.connect(timeoutCtx, expectedPeerID, dialAddresses); err != nil {
 		return nil, err
 	}
+	n.opts.Logger.Debug(
+		"rpc connected",
+		"peer_id", expectedPeerID.String(),
+		"method", method,
+		"notification", notification,
+	)
 
 	stream, err := n.host.NewStream(timeoutCtx, expectedPeerID, protocol.ID(ProtocolRPCIDV1))
 	if err != nil {
 		return nil, fmt.Errorf("open rpc stream: %w", err)
 	}
+	n.opts.Logger.Debug(
+		"rpc stream opened",
+		"peer_id", expectedPeerID.String(),
+		"method", method,
+		"stream_id", stream.ID(),
+	)
 	defer stream.Close()
 	_ = stream.SetDeadline(time.Now().UTC().Add(n.opts.RPCTimeout))
 
@@ -506,6 +523,13 @@ func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dial
 	if err := stream.CloseWrite(); err != nil {
 		return nil, fmt.Errorf("close rpc write: %w", err)
 	}
+	n.opts.Logger.Debug(
+		"rpc request sent",
+		"peer_id", expectedPeerID.String(),
+		"method", method,
+		"notification", notification,
+		"request_bytes", len(reqRaw),
+	)
 	if notification {
 		return nil, nil
 	}
@@ -522,9 +546,21 @@ func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dial
 	if err != nil {
 		return nil, err
 	}
+	n.opts.Logger.Debug(
+		"rpc response received",
+		"peer_id", expectedPeerID.String(),
+		"method", method,
+		"response_bytes", len(respRaw),
+		"symbol", strings.TrimSpace(symbol),
+	)
 	if strings.TrimSpace(symbol) != "" {
 		// Handles session drift (for example remote node restart) by renegotiating once.
 		if rpcMethodRequiresSession(method) && shouldRetryAfterUnsupported(symbol, retriedUnsupported) {
+			n.opts.Logger.Debug(
+				"rpc retry after unsupported protocol",
+				"peer_id", expectedPeerID.String(),
+				"method", method,
+			)
 			if _, err := n.dialHelloResolved(ctx, expectedPeerID, dialAddresses); err != nil {
 				return nil, err
 			}
@@ -565,6 +601,7 @@ func (n *Node) handleHelloStream(stream network.Stream) {
 	_ = stream.SetDeadline(time.Now().UTC().Add(n.opts.HelloTimeout))
 
 	remotePeer := stream.Conn().RemotePeer().String()
+	n.opts.Logger.Debug("hello stream accepted", "peer_id", remotePeer, "stream_id", stream.ID())
 	if _, err := n.ensurePeerAllowed(context.Background(), remotePeer); err != nil {
 		n.opts.Logger.Warn("reject hello from unauthorized peer", "peer_id", remotePeer, "err", err)
 		_ = stream.Conn().Close()
@@ -594,6 +631,12 @@ func (n *Node) handleHelloStream(stream network.Stream) {
 		_ = stream.Conn().Close()
 		return
 	}
+	n.opts.Logger.Debug(
+		"hello request parsed",
+		"peer_id", remotePeer,
+		"remote_min", remoteHello.ProtocolMin,
+		"remote_max", remoteHello.ProtocolMax,
+	)
 
 	localHello := n.localHelloMessage()
 	negotiated, err := negotiateProtocol(localHello.ProtocolMin, localHello.ProtocolMax, remoteHello.ProtocolMin, remoteHello.ProtocolMax)
@@ -612,6 +655,7 @@ func (n *Node) handleHelloStream(stream network.Stream) {
 	if err := n.recordSession(result); err != nil {
 		n.opts.Logger.Warn("record hello session failed", "peer_id", remotePeer, "err", err)
 	}
+	n.opts.Logger.Debug("hello negotiation ok", "peer_id", remotePeer, "negotiated", negotiated)
 
 	respRaw, err := json.Marshal(localHello)
 	if err != nil {
@@ -628,6 +672,7 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 	_ = stream.SetDeadline(time.Now().UTC().Add(n.opts.RPCTimeout))
 
 	remotePeerID := stream.Conn().RemotePeer().String()
+	n.opts.Logger.Debug("rpc stream accepted", "peer_id", remotePeerID, "stream_id", stream.ID())
 	if err := verifyRemotePeerOnStream(stream, stream.Conn().RemotePeer()); err != nil {
 		n.opts.Logger.Warn("reject rpc due to peer mismatch", "peer_id", remotePeerID, "err", err)
 		_ = stream.Conn().Close()
@@ -656,6 +701,12 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 		}
 		return
 	}
+	n.opts.Logger.Debug(
+		"rpc request parsed",
+		"peer_id", remotePeerID,
+		"method", req.Method,
+		"has_id", req.HasID,
+	)
 
 	if !isAllowedMethod(req.Method) {
 		if req.HasID {
@@ -686,14 +737,17 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 		if symbol != "" {
 			n.opts.Logger.Warn("rpc notification rejected", "peer_id", remotePeerID, "method", req.Method, "symbol", symbol, "details", details)
 		}
+		n.opts.Logger.Debug("rpc notification handled", "peer_id", remotePeerID, "method", req.Method, "symbol", strings.TrimSpace(symbol))
 		return
 	}
 
 	if strings.TrimSpace(symbol) != "" {
 		_, _ = n.writeRPCError(stream, req.ID, symbol, details)
+		n.opts.Logger.Debug("rpc response error", "peer_id", remotePeerID, "method", req.Method, "symbol", symbol)
 		return
 	}
 	_, _ = n.writeRPCSuccess(stream, req.ID, result)
+	n.opts.Logger.Debug("rpc response success", "peer_id", remotePeerID, "method", req.Method)
 }
 
 func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, string) {
@@ -940,7 +994,19 @@ func resolveExplicitDialTarget(peerID string, addresses []string) (peer.ID, []st
 func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []string) error {
 	directAddrs, relayAddrs := splitDialAddresses(addresses)
 	orderedSets := dialAddressSetsForMode(n.opts.RelayMode, directAddrs, relayAddrs)
+	n.opts.Logger.Debug(
+		"connect start",
+		"target_peer_id", targetPeerID.String(),
+		"relay_mode", n.opts.RelayMode,
+		"direct_count", len(directAddrs),
+		"relay_count", len(relayAddrs),
+	)
 	if len(orderedSets) == 0 {
+		n.opts.Logger.Debug(
+			"connect no dial sets",
+			"target_peer_id", targetPeerID.String(),
+			"relay_mode", n.opts.RelayMode,
+		)
 		return fmt.Errorf("connect to %s failed: no dial addresses for relay_mode=%s", targetPeerID.String(), n.opts.RelayMode)
 	}
 
@@ -948,10 +1014,22 @@ func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []st
 	directErrors := make([]string, 0, len(directAddrs))
 	for i, set := range orderedSets {
 		for _, raw := range set.Addresses {
+			n.opts.Logger.Debug(
+				"connect dial attempt",
+				"target_peer_id", targetPeerID.String(),
+				"path", set.Path,
+				"address", raw,
+			)
 			addressCtx, cancel := withTimeoutIfNeeded(ctx, n.opts.DialAddrTimeout)
 			err := n.connectOneAddress(addressCtx, targetPeerID, raw)
 			cancel()
 			if err == nil {
+				n.opts.Logger.Debug(
+					"connect dial success",
+					"target_peer_id", targetPeerID.String(),
+					"path", set.Path,
+					"address", raw,
+				)
 				event := RelayEvent{
 					Event:        "relay.path.selected",
 					Path:         set.Path,
@@ -964,6 +1042,13 @@ func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []st
 				n.emitRelayEvent(event)
 				return nil
 			}
+			n.opts.Logger.Debug(
+				"connect dial failed",
+				"target_peer_id", targetPeerID.String(),
+				"path", set.Path,
+				"address", raw,
+				"err", err,
+			)
 			connectErrors = append(connectErrors, fmt.Sprintf("%s(%s): %v", set.Path, raw, err))
 			if set.Path == "direct" {
 				directErrors = append(directErrors, fmt.Sprintf("%s: %v", raw, err))
@@ -982,22 +1067,44 @@ func (n *Node) connect(ctx context.Context, targetPeerID peer.ID, addresses []st
 	if len(connectErrors) == 0 {
 		return fmt.Errorf("connect to %s failed: no dial addresses", targetPeerID.String())
 	}
+	n.opts.Logger.Debug(
+		"connect failed",
+		"target_peer_id", targetPeerID.String(),
+		"errors", strings.Join(connectErrors, "; "),
+	)
 	return fmt.Errorf("connect to %s failed: %s", targetPeerID.String(), strings.Join(connectErrors, "; "))
 }
 
 func (n *Node) connectOneAddress(ctx context.Context, targetPeerID peer.ID, address string) error {
-	addr, err := ma.NewMultiaddr(address)
+	info, err := dialAddrInfoForTarget(address, targetPeerID)
 	if err != nil {
-		return fmt.Errorf("invalid dial multiaddr %q: %w", address, err)
-	}
-	info := peer.AddrInfo{
-		ID:    targetPeerID,
-		Addrs: []ma.Multiaddr{addr},
+		return err
 	}
 	if err := n.host.Connect(ctx, info); err != nil {
 		return err
 	}
 	return nil
+}
+
+func dialAddrInfoForTarget(address string, targetPeerID peer.ID) (peer.AddrInfo, error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return peer.AddrInfo{}, fmt.Errorf("empty dial address")
+	}
+	info, err := peer.AddrInfoFromString(address)
+	if err != nil {
+		return peer.AddrInfo{}, fmt.Errorf("invalid dial multiaddr %q: %w", address, err)
+	}
+	if info == nil || info.ID == "" {
+		return peer.AddrInfo{}, fmt.Errorf("invalid dial multiaddr %q: missing peer id", address)
+	}
+	if info.ID != targetPeerID {
+		return peer.AddrInfo{}, fmt.Errorf("dial multiaddr %q targets %s but expected %s", address, info.ID.String(), targetPeerID.String())
+	}
+	if len(info.Addrs) == 0 {
+		return peer.AddrInfo{}, fmt.Errorf("invalid dial multiaddr %q: missing transport address", address)
+	}
+	return *info, nil
 }
 
 func splitDialAddresses(addresses []string) ([]string, []string) {
@@ -1090,15 +1197,30 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 		n.setRelayAdvertiseAddrs(nil)
 		return err
 	}
+	n.opts.Logger.Debug(
+		"relay reservation start",
+		"relay_count", len(infos),
+		"local_peer_id", n.host.ID().String(),
+	)
 
 	relayAddrs := make([]string, 0, len(infos))
 	successCount := 0
 	for _, info := range infos {
+		n.opts.Logger.Debug(
+			"relay reservation attempt",
+			"relay_peer_id", info.ID.String(),
+			"relay_addr_count", len(info.Addrs),
+		)
 		reserveCtx, cancel := withTimeoutIfNeeded(ctx, n.opts.HelloTimeout)
 		reservation, reserveErr := relayclient.Reserve(reserveCtx, n.host, info)
 		cancel()
 
 		if reserveErr != nil {
+			n.opts.Logger.Debug(
+				"relay reservation failed",
+				"relay_peer_id", info.ID.String(),
+				"err", reserveErr,
+			)
 			n.emitRelayEvent(RelayEvent{
 				Event:       "relay.reservation.failed",
 				Path:        "relay",
@@ -1119,6 +1241,11 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 			addrs = buildRelayCircuitBaseAddrs(info)
 		}
 		relayAddrs = append(relayAddrs, addrs...)
+		n.opts.Logger.Debug(
+			"relay reservation ok",
+			"relay_peer_id", info.ID.String(),
+			"relay_advertise_count", len(addrs),
+		)
 
 		n.emitRelayEvent(RelayEvent{
 			Event:       "relay.reservation.ok",
@@ -1133,6 +1260,11 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 	if successCount == 0 {
 		return fmt.Errorf("no relay reservation succeeded")
 	}
+	n.opts.Logger.Debug(
+		"relay reservation completed",
+		"success_count", successCount,
+		"relay_advertise_total", len(relayAddrs),
+	)
 	return nil
 }
 

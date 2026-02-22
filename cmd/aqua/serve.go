@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,7 +28,16 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
+			logger, err := loggerFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			logger.Debug(
+				"serve config",
+				"listen_addrs", normalizeAddressList(listenAddrs),
+				"relay_addrs", normalizeAddressList(relayAddrs),
+				"relay_mode", relayMode,
+			)
 			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
 				ListenAddrs: listenAddrs,
 				RelayAddrs:  relayAddrs,

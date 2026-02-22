@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"sort"
@@ -58,7 +57,15 @@ func newRelayServeCmd() *cobra.Command {
 				return err
 			}
 
-			logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
+			logger, err := loggerFromCmd(cmd)
+			if err != nil {
+				return err
+			}
+			logger.Debug(
+				"relay serve config",
+				"listen_addrs", resolvedListenAddrs,
+				"allowlist_count", len(allowedPeers),
+			)
 			acl := relayAllowlistACL{allowed: allowedPeers}
 			h, err := libp2p.New(
 				libp2p.Identity(priv),

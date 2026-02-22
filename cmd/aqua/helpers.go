@@ -57,12 +57,50 @@ func newDialNode(cmd *cobra.Command) (*aqua.Node, error) {
 
 func newDialNodeWithRelayMode(cmd *cobra.Command, relayMode string) (*aqua.Node, error) {
 	svc := serviceFromCmd(cmd)
-	logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger, err := loggerFromCmd(cmd)
+	if err != nil {
+		return nil, err
+	}
 	return aqua.NewNode(cmd.Context(), svc, aqua.NodeOptions{
 		DialOnly:  true,
 		RelayMode: relayMode,
 		Logger:    logger,
 	})
+}
+
+func loggerFromCmd(cmd *cobra.Command) (*slog.Logger, error) {
+	level, err := resolveLogLevel(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: level})), nil
+}
+
+func resolveLogLevel(cmd *cobra.Command) (slog.Level, error) {
+	raw := "info"
+	if cmd != nil {
+		if f := cmd.Flags().Lookup("log-level"); f != nil {
+			raw = f.Value.String()
+		} else if f := cmd.InheritedFlags().Lookup("log-level"); f != nil {
+			raw = f.Value.String()
+		}
+	}
+	return parseLogLevel(raw)
+}
+
+func parseLogLevel(raw string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "info":
+		return slog.LevelInfo, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("invalid --log-level %q (supported: debug, info, warn, error)", raw)
+	}
 }
 
 func resolveCardExportAddressesForCommand(

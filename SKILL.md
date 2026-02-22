@@ -16,8 +16,8 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 - Common listen port in examples: `6371` and `6372` (for relay)
 - Usually no need to run `aqua id "<nickname>"` auto-initializes identity on first use, and explicitly to set a nickname, or check your peer ID for sharing with others.
 - Default relay host for relay mode: `aqua-relay.mistermorph.com`
-- Default relay endpoint (TCP): `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW`
-- Optional relay endpoint (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW`
+- Default relay endpoint (TCP): `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+- Optional relay endpoint (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 
 
 
@@ -74,15 +74,15 @@ aqua inbox list --unread
 When relay mode is needed, prefer the official relay server by default:
 
 ```bash
-aqua serve --relay-mode required \
-  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW \
-  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW
+aqua serve --relay-mode auto \
+  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
+  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E
 ```
 
 For `aqua contacts add`, prefer the relay-circuit address printed by peer `aqua serve` output. If composing manually:
 
 ```bash
-aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW/p2p-circuit/p2p/<TARGET_PEER_ID>
+aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID>
 ```
 
 ## Message Operations

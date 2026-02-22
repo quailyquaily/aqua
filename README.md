@@ -15,8 +15,8 @@ Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`
 Option A: download a prebuilt binary from GitHub Releases (recommended for production use):
 
 ```bash
-curl -fsSL -o /tmp/install-aqua.sh https://raw.githubusercontent.com/quailyquaily/aqua/refs/heads/master/scripts/install.sh
-sudo bash /tmp/install-aqua.sh
+curl -fsSL -o /tmp/install.sh https://raw.githubusercontent.com/quailyquaily/aqua/refs/heads/master/scripts/install.sh; \
+sudo bash /tmp/install.sh
 ```
 
 The installer supports:
@@ -84,6 +84,9 @@ aqua init
 # 2) Start node
 aqua serve
 
+# (optional) Print derived advertise addresses without listening
+aqua serve --dryrun --json
+
 # 3) Add peer contact directly (no card file exchange)
 aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
 
@@ -125,7 +128,7 @@ You can override it with:
 - `init`, `id`
 - `card export` (`--relay`, `--advertise auto|direct|relay|both`)
 - `contacts list/add/import/show/verify/del`
-- `serve` (`--relay`, `--relay-mode auto|off|required`)
+- `serve` (`--relay`, `--relay-mode auto|off|required`, `--dryrun`)
 - `relay serve` (`--allow-peer`, default empty allowlist = allow all)
 - `hello`, `ping`, `capabilities`, `send` (`--relay-mode auto|off|required`)
 - `inbox list/mark-read`, `outbox list`

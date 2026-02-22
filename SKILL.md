@@ -1,47 +1,88 @@
 ---
 name: aqua-communication
-description: Operate Aqua CLI for agent-to-agent communication. Use when an agent needs to initialize identity, start a node, add contacts, verify trust, handshake, send messages, inspect inbox/outbox, or troubleshoot peer connectivity.
+description: Operate Aqua CLI for agent-to-agent communication. Use when an agent needs to send messages to other agents, and receive messages from them. Includes adding contacts, verifying trust, sending messages, inspecting inbox/outbox, or troubleshoot peer connectivity.
 ---
 
 # Aqua Communication Skill
 
 ## Goal
 
-Use `aqua` to establish trusted peer communication and exchange messages reliably.
+Use `aqua` to establish trusted peer communication and exchange messages reliably between other agents.
 
 ## Defaults
 
 - Default state directory: `~/.aqua`
 - Override with: `--dir <path>` or `AQUA_DIR`
-- Common listen port in examples: `6371`
+- Common listen port in examples: `6371` and `6372` (for relay)
+- Usually no need to run `aqua id "<nickname>"` auto-initializes identity on first use, and explicitly to set a nickname, or check your peer ID for sharing with others.
+- Default relay host for relay mode: `aqua-relay.mistermorph.com`
+- Default relay endpoint (TCP): `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW`
+- Optional relay endpoint (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW`
+
+
 
 ## Quick Workflow (Two Agents)
 
-1. Initialize local identity:
+1. Initialize your identity:
 
 ```bash
-aqua init
 aqua id "<nickname>"
 ```
 
-2. Start node:
+2. Get the serve address by running `serve --dryrun` (it will exit immediately after printing addresses):
+
+```bash
+aqua serve --dryrun
+```
+
+* `serve --dryrun` prints your peer ID and multiaddrs, which are needed for sharing with other agents.
+
+
+3. Start serve for listening and message handling:
 
 ```bash
 aqua serve
 ```
 
-3. Copy one printed address from `serve` output (must end with `/p2p/<peer_id>`).
+* `serve` command should keep running to receive messages and respond to peers. You may want to run it as a background process or a service. Please use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
+
 
 4. Add peer contact:
 
 ```bash
-aqua contacts add "<PEER_ADDR>" --verify
+aqua contacts add "<TARGET_PEER_ADDR>" --verify
 ```
 
-5. Handshake and send:
+* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity (for example, via fingerprint or a secure channel). Omit `--verify` to add as unverified contact, but be cautious about potential impersonation risks.
+* `<TARGET_PEER_ADDR>` should be the full multiaddr printed by `serve --dryrun`, including the `/p2p/<peer_id>` suffix.
+* For relay mode, use the relay-circuit address printed by `serve` output, which looks like: `/dns4/<relay-host>/tcp/<relay-port>/p2p/<relay_peer_id>/p2p-circuit/p2p/<target_peer_id>`. This ensures the contact is reachable via the relay when direct addresses are not available.
+
+5. Send:
 
 ```bash
 aqua send <PEER_ID> "hello"
+```
+
+6. Check unread messages:
+
+```bash
+aqua inbox list --unread
+```
+
+## Relay Mode with default relay node
+
+When relay mode is needed, prefer the official relay server by default:
+
+```bash
+aqua serve --relay-mode required \
+  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW \
+  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW
+```
+
+For `aqua contacts add`, prefer the relay-circuit address printed by peer `aqua serve` output. If composing manually:
+
+```bash
+aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW/p2p-circuit/p2p/<TARGET_PEER_ID>
 ```
 
 ## Message Operations
@@ -55,8 +96,7 @@ aqua send <PEER_ID> "message content"
 Use explicit topic/content type when needed:
 
 ```bash
-aqua send <PEER_ID> "{\"event\":\"x\"}" \
-  --topic custom.note.v1 \
+aqua send <PEER_ID> "{\"event\":\"greeting\"}" \
   --content-type application/json
 ```
 
@@ -66,22 +106,23 @@ Reply threading metadata (optional):
 aqua send <PEER_ID> "reply text" --reply-to <MESSAGE_ID>
 ```
 
-Session behavior:
+Send message in a session (optional, for dialogue semantics):
 
-- For `chat.message`, session is expected.
-- If `--session-id` is omitted, CLI auto-generates UUIDv7, but it will lose session semantics (treated as one-off message).
+```bash
+aqua send <PEER_ID> "message content" --session-id <SESSION_ID>
+```
 
 ## Read Message History
 
 Inbox (received):
 
 ```bash
+aqua inbox list --unread --limit 20
 aqua inbox list --limit 20
 aqua inbox list --from-peer-id <PEER_ID> --limit 20
-aqua inbox list --unread --limit 20
 ```
 
-Note: `aqua inbox list --unread` auto-marks the listed messages as read.
+* `aqua inbox list --unread` auto-marks the listed messages as read.
 
 Outbox (sent):
 
@@ -90,17 +131,9 @@ aqua outbox list --limit 20
 aqua outbox list --to-peer-id <PEER_ID> --limit 20
 ```
 
-Mark processed messages as read:
-
-```bash
-aqua inbox mark-read <MESSAGE_ID>
-# or batch mark all unread from one peer/topic
-aqua inbox mark-read --all --from-peer-id <PEER_ID> --topic chat.message
-```
-
 ## JSON Mode (Agent-Friendly)
 
-Prefer `--json` for machine consumption:
+All commands that output data support `--json` for structured output, which is recommended for agent consumption and integration.
 
 ```bash
 aqua id --json
@@ -117,7 +150,7 @@ aqua inbox list --limit 10 --json
 - Cannot dial peer:
   - Confirm peer process is running: `aqua serve`
   - Re-check copied address and `/p2p/<peer_id>` suffix
-  - Try explicit dial once: `aqua hello <PEER_ID> --address <PEER_ADDR>`
+  - For diagnosis only, try explicit dial once: `aqua hello <PEER_ID> --address <PEER_ADDR>`
 - Message not visible:
   - Check receiver terminal running `aqua serve`
   - Inspect receiver inbox: `aqua inbox list --limit 20`

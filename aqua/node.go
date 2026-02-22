@@ -395,7 +395,9 @@ func (n *Node) dialHelloResolved(ctx context.Context, expectedPeerID peer.ID, di
 		return HelloResult{}, err
 	}
 
-	stream, err := n.host.NewStream(timeoutCtx, expectedPeerID, protocol.ID(ProtocolHelloIDV1))
+	// Relay circuits are often "limited" connections. Allow opening streams on them.
+	streamCtx := network.WithAllowLimitedConn(timeoutCtx, "aqua-hello")
+	stream, err := n.host.NewStream(streamCtx, expectedPeerID, protocol.ID(ProtocolHelloIDV1))
 	if err != nil {
 		return HelloResult{}, fmt.Errorf("open hello stream: %w", err)
 	}
@@ -474,15 +476,31 @@ func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dial
 	if err := n.connect(timeoutCtx, expectedPeerID, dialAddresses); err != nil {
 		return nil, err
 	}
+	connsAfterDial := n.host.Network().ConnsToPeer(expectedPeerID)
 	n.opts.Logger.Debug(
 		"rpc connected",
 		"peer_id", expectedPeerID.String(),
 		"method", method,
 		"notification", notification,
+		"connectedness", n.host.Network().Connectedness(expectedPeerID).String(),
+		"conn_count", len(connsAfterDial),
+		"conn_details", connDebugDetails(connsAfterDial),
 	)
 
-	stream, err := n.host.NewStream(timeoutCtx, expectedPeerID, protocol.ID(ProtocolRPCIDV1))
+	// Relay circuits are often "limited" connections. Allow opening streams on them.
+	streamCtx := network.WithAllowLimitedConn(timeoutCtx, "aqua-rpc")
+	stream, err := n.host.NewStream(streamCtx, expectedPeerID, protocol.ID(ProtocolRPCIDV1))
 	if err != nil {
+		connsOnFailure := n.host.Network().ConnsToPeer(expectedPeerID)
+		n.opts.Logger.Debug(
+			"rpc stream open failed",
+			"peer_id", expectedPeerID.String(),
+			"method", method,
+			"err", err,
+			"connectedness", n.host.Network().Connectedness(expectedPeerID).String(),
+			"conn_count", len(connsOnFailure),
+			"conn_details", connDebugDetails(connsOnFailure),
+		)
 		return nil, fmt.Errorf("open rpc stream: %w", err)
 	}
 	n.opts.Logger.Debug(
@@ -1083,6 +1101,13 @@ func (n *Node) connectOneAddress(ctx context.Context, targetPeerID peer.ID, addr
 	if err := n.host.Connect(ctx, info); err != nil {
 		return err
 	}
+	n.opts.Logger.Debug(
+		"connect address established",
+		"target_peer_id", targetPeerID.String(),
+		"address", strings.TrimSpace(address),
+		"connectedness", n.host.Network().Connectedness(targetPeerID).String(),
+		"conn_count", len(n.host.Network().ConnsToPeer(targetPeerID)),
+	)
 	return nil
 }
 
@@ -1105,6 +1130,33 @@ func dialAddrInfoForTarget(address string, targetPeerID peer.ID) (peer.AddrInfo,
 		return peer.AddrInfo{}, fmt.Errorf("invalid dial multiaddr %q: missing transport address", address)
 	}
 	return *info, nil
+}
+
+func connDebugDetails(conns []network.Conn) []string {
+	if len(conns) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(conns))
+	for _, conn := range conns {
+		if conn == nil {
+			continue
+		}
+		state := conn.ConnState()
+		out = append(out, fmt.Sprintf(
+			"id=%s dir=%s limited=%v local=%s remote=%s mux=%s sec=%s transport=%s streams=%d closed=%v",
+			conn.ID(),
+			conn.Stat().Direction.String(),
+			conn.Stat().Limited,
+			conn.LocalMultiaddr().String(),
+			conn.RemoteMultiaddr().String(),
+			state.StreamMultiplexer,
+			state.Security,
+			state.Transport,
+			len(conn.GetStreams()),
+			conn.IsClosed(),
+		))
+	}
+	return out
 }
 
 func splitDialAddresses(addresses []string) ([]string, []string) {

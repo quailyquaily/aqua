@@ -63,6 +63,9 @@ func newRelayServeCmd() *cobra.Command {
 			h, err := libp2p.New(
 				libp2p.Identity(priv),
 				libp2p.ListenAddrStrings(resolvedListenAddrs...),
+				// Dedicated relay mode should always expose the v2 hop protocol,
+				// even when AutoNAT reports private/unknown reachability.
+				libp2p.ForceReachabilityPublic(),
 				libp2p.EnableRelayService(relayv2.WithACL(acl)),
 			)
 			if err != nil {

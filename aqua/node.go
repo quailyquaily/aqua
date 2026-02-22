@@ -1086,6 +1086,10 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 		n.setRelayAdvertiseAddrs(nil)
 		return fmt.Errorf("no valid relay addresses configured")
 	}
+	if err := rejectRelayInfosForLocalPeerID(infos, n.host.ID()); err != nil {
+		n.setRelayAdvertiseAddrs(nil)
+		return err
+	}
 
 	relayAddrs := make([]string, 0, len(infos))
 	successCount := 0
@@ -1230,6 +1234,18 @@ func parseRelayAddrInfos(rawAddresses []string) ([]peer.AddrInfo, error) {
 		})
 	}
 	return out, nil
+}
+
+func rejectRelayInfosForLocalPeerID(infos []peer.AddrInfo, localPeerID peer.ID) error {
+	if localPeerID == "" || len(infos) == 0 {
+		return nil
+	}
+	for _, info := range infos {
+		if info.ID != "" && info.ID == localPeerID {
+			return fmt.Errorf("relay peer_id %s matches local peer_id; use a dedicated relay identity (set --dir or AQUA_DIR)", localPeerID.String())
+		}
+	}
+	return nil
 }
 
 func buildRelayCircuitBaseAddrs(info peer.AddrInfo) []string {
@@ -1526,12 +1542,20 @@ func defaultFallbackListenAddrs() []string {
 
 func newLibp2pHost(priv ic.PrivKey, dialOnly bool, listenAddrs []string) (host.Host, error) {
 	hostOpts := []libp2p.Option{libp2p.Identity(priv)}
-	if dialOnly {
-		hostOpts = append(hostOpts, libp2p.NoListenAddrs)
-	} else {
-		hostOpts = append(hostOpts, libp2p.ListenAddrStrings(listenAddrs...))
-	}
+	hostOpts = append(hostOpts, libp2pNetworkOptions(dialOnly, listenAddrs)...)
 	return libp2p.New(hostOpts...)
+}
+
+func libp2pNetworkOptions(dialOnly bool, listenAddrs []string) []libp2p.Option {
+	if dialOnly {
+		return []libp2p.Option{
+			libp2p.NoListenAddrs,
+			// NoListenAddrs disables relay transport unless explicitly enabled.
+			// Dial-only commands still need relay transport for /p2p-circuit dials.
+			libp2p.EnableRelay(),
+		}
+	}
+	return []libp2p.Option{libp2p.ListenAddrStrings(listenAddrs...)}
 }
 
 func withTimeoutIfNeeded(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

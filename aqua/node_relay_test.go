@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func TestNormalizeRelayMode(t *testing.T) {
@@ -156,5 +158,48 @@ func TestParseRelayAddrInfos_RejectsCircuitEndpoint(t *testing.T) {
 	_, err := parseRelayAddrInfos([]string{"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit"})
 	if err == nil {
 		t.Fatalf("expected relay endpoint with /p2p-circuit to be rejected")
+	}
+}
+
+func TestRejectRelayInfosForLocalPeerID(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := GenerateIdentity(time.Date(2026, 2, 22, 10, 10, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	otherIdentity, err := GenerateIdentity(time.Date(2026, 2, 22, 10, 10, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(other) error = %v", err)
+	}
+	localPeerID, err := peer.Decode(relayIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("peer.Decode(local) error = %v", err)
+	}
+
+	infos, err := parseRelayAddrInfos([]string{
+		fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", otherIdentity.PeerID),
+	})
+	if err != nil {
+		t.Fatalf("parseRelayAddrInfos() error = %v", err)
+	}
+
+	if err := rejectRelayInfosForLocalPeerID(infos, localPeerID); err == nil {
+		t.Fatalf("expected self relay peer_id to be rejected")
+	}
+
+	otherPeerID, err := peer.Decode(otherIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("peer.Decode(other) error = %v", err)
+	}
+	otherInfos, err := parseRelayAddrInfos([]string{
+		fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", relayIdentity.PeerID),
+	})
+	if err != nil {
+		t.Fatalf("parseRelayAddrInfos(otherInfos) error = %v", err)
+	}
+	if err := rejectRelayInfosForLocalPeerID(otherInfos, otherPeerID); err != nil {
+		t.Fatalf("rejectRelayInfosForLocalPeerID() unexpected error = %v", err)
 	}
 }

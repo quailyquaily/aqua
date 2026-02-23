@@ -17,6 +17,8 @@ var serveDefaultListenAddrs = []string{
 	"/ip4/0.0.0.0/tcp/6372",
 }
 
+const envRelayProbe = "AQUA_RELAY_PROBE"
+
 func newServeCmd() *cobra.Command {
 	var listenAddrs []string
 	var relayAddrs []string
@@ -43,6 +45,10 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			relayProbeEnabled, err := resolveRelayProbeEnabledFromEnv()
+			if err != nil {
+				return err
+			}
 			resolvedListenAddrs := normalizeAddressList(listenAddrs)
 			resolvedRelayAddrs := normalizeAddressList(relayAddrs)
 			logger.Debug(
@@ -50,6 +56,7 @@ func newServeCmd() *cobra.Command {
 				"listen_addrs", resolvedListenAddrs,
 				"relay_addrs", resolvedRelayAddrs,
 				"relay_mode", resolvedRelayMode,
+				"relay_probe", relayProbeEnabled,
 				"dryrun", dryRun,
 			)
 
@@ -67,11 +74,12 @@ func newServeCmd() *cobra.Command {
 						"listen_addrs": resolvedListenAddrs,
 						"relay_addrs":  resolvedRelayAddrs,
 						"relay_mode":   resolvedRelayMode,
+						"relay_probe":  relayProbeEnabled,
 						"addresses":    resolvedAddresses,
 					})
 					return nil
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: dryrun\ndryrun: true\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\n", identity.NodeUUID, identity.PeerID, resolvedRelayMode)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: dryrun\ndryrun: true\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\nrelay_probe: %t\n", identity.NodeUUID, identity.PeerID, resolvedRelayMode, relayProbeEnabled)
 				for _, listenAddr := range resolvedListenAddrs {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "listen: %s\n", listenAddr)
 				}
@@ -85,10 +93,11 @@ func newServeCmd() *cobra.Command {
 			}
 
 			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
-				ListenAddrs: listenAddrs,
-				RelayAddrs:  relayAddrs,
-				RelayMode:   resolvedRelayMode,
-				Logger:      logger,
+				ListenAddrs:       listenAddrs,
+				RelayAddrs:        relayAddrs,
+				RelayMode:         resolvedRelayMode,
+				RelayProbeEnabled: relayProbeEnabled,
+				Logger:            logger,
 				OnDataPush: func(event aqua.DataPushEvent) {
 					printDataPushEvent(cmd, event, outputJSON)
 				},
@@ -109,9 +118,10 @@ func newServeCmd() *cobra.Command {
 					"addresses":   node.AddrStrings(),
 					"relay_addrs": resolvedRelayAddrs,
 					"relay_mode":  resolvedRelayMode,
+					"relay_probe": relayProbeEnabled,
 				})
 			} else {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\n", identity.NodeUUID, node.PeerID(), resolvedRelayMode)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\nrelay_probe: %t\n", identity.NodeUUID, node.PeerID(), resolvedRelayMode, relayProbeEnabled)
 				for _, relayAddr := range resolvedRelayAddrs {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "relay: %s\n", relayAddr)
 				}
@@ -143,6 +153,21 @@ func normalizeServeRelayMode(raw string) (string, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("invalid --relay-mode %q (supported: %s, %s, %s)", raw, aqua.RelayModeAuto, aqua.RelayModeOff, aqua.RelayModeRequired)
+	}
+}
+
+func resolveRelayProbeEnabledFromEnv() (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(envRelayProbe))
+	if raw == "" {
+		return false, nil
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid %s=%q (supported: 1|true|yes|on|0|false|no|off)", envRelayProbe, raw)
 	}
 }
 

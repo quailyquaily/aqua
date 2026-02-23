@@ -413,3 +413,25 @@ func TestNextRelayReservationRetryDelay(t *testing.T) {
 		})
 	}
 }
+
+func TestNextRelayProbeDelay(t *testing.T) {
+	t.Parallel()
+
+	interval := relayProbeInterval
+	min := interval - relayProbeJitterMax
+	max := interval + relayProbeJitterMax
+
+	for i := 0; i < 200; i++ {
+		got := nextRelayProbeDelay(interval)
+		if got < min || got > max {
+			t.Fatalf("nextRelayProbeDelay() out of range: got %s, want [%s, %s]", got, min, max)
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		got := nextRelayProbeDelay(0)
+		if got < min || got > max {
+			t.Fatalf("nextRelayProbeDelay(0) out of range: got %s, want [%s, %s]", got, min, max)
+		}
+	}
+}

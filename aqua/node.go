@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net"
 	"sort"
 	"strings"
@@ -37,6 +38,8 @@ const (
 	relayRenewFallback        = 15 * time.Minute
 	relayRetryMinInterval     = 5 * time.Second
 	relayRetryMaxInterval     = 2 * time.Minute
+	relayProbeInterval        = 120 * time.Second
+	relayProbeJitterMax       = relayProbeInterval / 5
 )
 
 type NodeOptions struct {
@@ -52,6 +55,7 @@ type NodeOptions struct {
 	DataPushPerMinute  int
 	DedupeTTL          time.Duration
 	DedupeMaxEntries   int
+	RelayProbeEnabled  bool
 	Logger             *slog.Logger
 	OnDataPush         func(event DataPushEvent)
 	OnRelayEvent       func(event RelayEvent)
@@ -177,7 +181,7 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 			}
 			n.opts.Logger.Warn("relay reservation unavailable", "err", err)
 		}
-		n.startRelayReservationLoop(expiresAt)
+		n.startRelayReservationLoop(expiresAt, options.RelayProbeEnabled)
 	}
 
 	return n, nil
@@ -428,7 +432,7 @@ func (n *Node) startIncomingWriter() {
 	go n.runIncomingWriter()
 }
 
-func (n *Node) startRelayReservationLoop(initialExpiration time.Time) {
+func (n *Node) startRelayReservationLoop(initialExpiration time.Time, probeEnabled bool) {
 	if n == nil || n.opts.DialOnly || n.opts.RelayMode == RelayModeOff || len(n.opts.RelayAddrs) == 0 {
 		return
 	}
@@ -449,10 +453,12 @@ func (n *Node) startRelayReservationLoop(initialExpiration time.Time) {
 		"relay reservation loop started",
 		"first_attempt_in", firstDelay,
 		"initial_expires_at", initialExpiration,
+		"probe_enabled", probeEnabled,
+		"probe_interval", relayProbeInterval,
 	)
 
 	n.relayWG.Add(1)
-	go n.runRelayReservationLoop(loopCtx, firstDelay)
+	go n.runRelayReservationLoop(loopCtx, firstDelay, probeEnabled)
 }
 
 func (n *Node) stopIncomingWriter() {
@@ -482,7 +488,7 @@ func (n *Node) stopRelayReservationLoop() {
 	n.relayWG.Wait()
 }
 
-func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Duration) {
+func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Duration, probeEnabled bool) {
 	defer n.relayWG.Done()
 	if n == nil {
 		return
@@ -490,26 +496,58 @@ func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Dura
 	if firstDelay <= 0 {
 		firstDelay = relayRetryMinInterval
 	}
-	timer := time.NewTimer(firstDelay)
-	defer timer.Stop()
+	renewTimer := time.NewTimer(firstDelay)
+	defer renewTimer.Stop()
+	var probeTimer *time.Timer
+	if probeEnabled {
+		probeDelay := nextRelayProbeDelay(relayProbeInterval)
+		probeTimer = time.NewTimer(probeDelay)
+		defer probeTimer.Stop()
+	}
 	retryDelay := relayRetryMinInterval
 
+	resetTimer := func(timer *time.Timer, delay time.Duration) {
+		if timer == nil {
+			return
+		}
+		if delay <= 0 {
+			delay = relayRetryMinInterval
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(delay)
+	}
+
 	for {
+		trigger := "renew"
 		select {
 		case <-ctx.Done():
 			n.opts.Logger.Debug("relay reservation loop stopped")
 			return
-		case <-timer.C:
+		case <-renewTimer.C:
+			trigger = "renew"
+		case <-func() <-chan time.Time {
+			if probeTimer == nil {
+				return nil
+			}
+			return probeTimer.C
+		}():
+			trigger = "probe"
 		}
 
 		n.opts.Logger.Debug(
 			"relay reservation refresh start",
 			"relay_count", len(n.opts.RelayAddrs),
+			"trigger", trigger,
 		)
 		n.emitRelayEvent(RelayEvent{
 			Event:     "relay.reservation.refresh.start",
 			Path:      "relay",
-			Reason:    fmt.Sprintf("relay_count=%d", len(n.opts.RelayAddrs)),
+			Reason:    fmt.Sprintf("relay_count=%d trigger=%s", len(n.opts.RelayAddrs), trigger),
 			Timestamp: time.Now().UTC(),
 		})
 
@@ -524,7 +562,12 @@ func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Dura
 				"relay reservation refresh failed",
 				"err", err,
 				"next_retry_in", nextDelay,
+				"trigger", trigger,
 			)
+			resetTimer(renewTimer, nextDelay)
+			if probeTimer != nil {
+				resetTimer(probeTimer, nextRelayProbeDelay(relayProbeInterval))
+			}
 			retryDelay = nextRelayReservationRetryDelay(retryDelay)
 		} else {
 			retryDelay = relayRetryMinInterval
@@ -533,9 +576,13 @@ func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Dura
 				"relay reservation refresh scheduled",
 				"next_attempt_in", nextDelay,
 				"expires_at", expiresAt,
+				"trigger", trigger,
 			)
+			resetTimer(renewTimer, nextDelay)
+			if probeTimer != nil {
+				resetTimer(probeTimer, nextRelayProbeDelay(relayProbeInterval))
+			}
 		}
-		timer.Reset(nextDelay)
 	}
 }
 
@@ -1849,6 +1896,23 @@ func nextRelayReservationRetryDelay(current time.Duration) time.Duration {
 		return relayRetryMaxInterval
 	}
 	return next
+}
+
+func nextRelayProbeDelay(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		interval = relayProbeInterval
+	}
+	maxJitter := relayProbeJitterMax
+	if maxJitter <= 0 || maxJitter >= interval {
+		return interval
+	}
+	jitterWindow := int64(maxJitter)*2 + 1
+	jitter := time.Duration(rand.Int63n(jitterWindow)) - maxJitter
+	delay := interval + jitter
+	if delay < relayRenewMinInterval {
+		return relayRenewMinInterval
+	}
+	return delay
 }
 
 func (n *Node) hasFreshSession(peerID string) bool {

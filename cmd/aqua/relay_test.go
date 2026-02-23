@@ -111,17 +111,17 @@ func TestHasWildcardListenAddress(t *testing.T) {
 	}{
 		{
 			name:   "ip4 wildcard",
-			input:  []string{"/ip4/0.0.0.0/tcp/6371"},
+			input:  []string{"/ip4/0.0.0.0/tcp/6372"},
 			expect: true,
 		},
 		{
 			name:   "ip6 wildcard",
-			input:  []string{"/ip6/::/tcp/6371"},
+			input:  []string{"/ip6/::/tcp/6372"},
 			expect: true,
 		},
 		{
 			name:   "concrete address",
-			input:  []string{"/ip4/127.0.0.1/tcp/6371"},
+			input:  []string{"/ip4/127.0.0.1/tcp/6372"},
 			expect: false,
 		},
 		{
@@ -147,7 +147,7 @@ func TestExpandAdvertiseAddressesWithIPs(t *testing.T) {
 	t.Parallel()
 
 	addresses := []string{
-		"/ip4/127.0.0.1/tcp/6371",
+		"/ip4/127.0.0.1/tcp/6372",
 		"/ip6/::1/tcp/6372/ws",
 	}
 	localIPs := []net.IP{
@@ -161,8 +161,8 @@ func TestExpandAdvertiseAddressesWithIPs(t *testing.T) {
 		gotSet[addr] = true
 	}
 	expect := []string{
-		"/ip4/127.0.0.1/tcp/6371",
-		"/ip4/10.20.30.40/tcp/6371",
+		"/ip4/127.0.0.1/tcp/6372",
+		"/ip4/10.20.30.40/tcp/6372",
 		"/ip6/::1/tcp/6372/ws",
 		"/ip6/2001:db8::40/tcp/6372/ws",
 	}
@@ -179,11 +179,11 @@ func TestExpandAdvertiseAddressesWithIPs(t *testing.T) {
 func TestExpandAdvertiseAddressesForListenAddrs_NoWildcard(t *testing.T) {
 	t.Parallel()
 
-	addresses := []string{" /ip4/0.0.0.0/tcp/6371 ", "/ip4/0.0.0.0/tcp/6371"}
-	listenAddrs := []string{"/ip4/127.0.0.1/tcp/6371"}
+	addresses := []string{" /ip4/0.0.0.0/tcp/6372 ", "/ip4/0.0.0.0/tcp/6372"}
+	listenAddrs := []string{"/ip4/127.0.0.1/tcp/6372"}
 
 	got := expandAdvertiseAddressesForListenAddrs(addresses, listenAddrs)
-	if len(got) != 1 || got[0] != "/ip4/0.0.0.0/tcp/6371" {
-		t.Fatalf("expandAdvertiseAddressesForListenAddrs() = %v, want [/ip4/0.0.0.0/tcp/6371]", got)
+	if len(got) != 1 || got[0] != "/ip4/0.0.0.0/tcp/6372" {
+		t.Fatalf("expandAdvertiseAddressesForListenAddrs() = %v, want [/ip4/0.0.0.0/tcp/6372]", got)
 	}
 }

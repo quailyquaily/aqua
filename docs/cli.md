@@ -92,8 +92,8 @@ This section shows a 3-node setup: Relay R, Machine A, and Machine B.
 ```bash
 aqua init
 aqua relay serve \
-  --listen /ip4/0.0.0.0/tcp/6371 \
-  --listen /ip4/0.0.0.0/tcp/6372/ws
+  --listen /ip4/0.0.0.0/tcp/6372 \
+  --listen /ip4/0.0.0.0/udp/6372/quic-v1
 ```
 
 From relay output, copy one printed `address: ...` line:
@@ -355,9 +355,8 @@ aqua serve \
 Flags:
 
 - `--listen` (repeatable): listen multiaddrs.
-  - default preferred: `/ip4/0.0.0.0/udp/6371/quic-v1`
-  - default preferred: `/ip4/0.0.0.0/tcp/6371`
-  - default preferred: `/ip4/0.0.0.0/tcp/6372/ws`
+  - default preferred: `/ip4/0.0.0.0/udp/6372/quic-v1`
+  - default preferred: `/ip4/0.0.0.0/tcp/6372`
   - fallback on bind failure: random ports (`/udp/0`, `/tcp/0`, `/tcp/0/ws`)
 - `--relay` (repeatable): relay endpoints to reserve.
 - `--relay-mode`: `auto|off|required` (default `auto`).
@@ -381,7 +380,7 @@ aqua relay serve [--listen <multiaddr> ...] [--allow-peer <peer_id> ...] [--json
 
 Flags:
 
-- `--listen` (repeatable): relay service listen addresses. Defaults `/ip4/0.0.0.0/tcp/6371` and `/ip4/0.0.0.0/tcp/6372/ws`.
+- `--listen` (repeatable): relay service listen addresses. Defaults `/ip4/0.0.0.0/tcp/6372` and `/ip4/0.0.0.0/udp/6372/quic-v1`.
 - `--allow-peer` (repeatable): peer allowlist. Default empty means allow all peers.
 - `--json`: print ready output as JSON.
 

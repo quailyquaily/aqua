@@ -65,7 +65,7 @@ func TestExtractPeerIDFromDialAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
-	valid := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", identity.PeerID)
+	valid := fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", identity.PeerID)
 
 	t.Run("extracts peer id", func(t *testing.T) {
 		t.Parallel()
@@ -82,7 +82,7 @@ func TestExtractPeerIDFromDialAddress(t *testing.T) {
 	t.Run("rejects missing p2p", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := extractPeerIDFromDialAddress("/ip4/127.0.0.1/tcp/6371")
+		_, err := extractPeerIDFromDialAddress("/ip4/127.0.0.1/tcp/6372")
 		if err == nil {
 			t.Fatalf("expected missing /p2p error")
 		}
@@ -91,7 +91,7 @@ func TestExtractPeerIDFromDialAddress(t *testing.T) {
 	t.Run("rejects invalid peer id", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := extractPeerIDFromDialAddress("/ip4/127.0.0.1/tcp/6371/p2p/not-a-peer-id")
+		_, err := extractPeerIDFromDialAddress("/ip4/127.0.0.1/tcp/6372/p2p/not-a-peer-id")
 		if err == nil {
 			t.Fatalf("expected invalid peer id error")
 		}
@@ -136,8 +136,8 @@ func TestSplitDirectAndRelayAddresses(t *testing.T) {
 	t.Parallel()
 
 	addresses := []string{
-		"/ip4/127.0.0.1/tcp/6371/p2p/12D3KooWDirectPeer",
-		"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWTargetPeer",
+		"/ip4/127.0.0.1/tcp/6372/p2p/12D3KooWDirectPeer",
+		"/dns4/relay.example.com/tcp/6372/p2p/12D3KooWRelayPeer/p2p-circuit/p2p/12D3KooWTargetPeer",
 	}
 	direct, relay := splitDirectAndRelayAddresses(addresses)
 	if len(direct) != 1 {
@@ -160,7 +160,7 @@ func TestBuildRelayAdvertiseAddresses(t *testing.T) {
 		t.Fatalf("GenerateIdentity(local) error = %v", err)
 	}
 
-	relayEndpoint := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", relayIdentity.PeerID)
+	relayEndpoint := fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", relayIdentity.PeerID)
 	addresses, err := buildRelayAdvertiseAddresses([]string{relayEndpoint}, localIdentity.PeerID)
 	if err != nil {
 		t.Fatalf("buildRelayAdvertiseAddresses() error = %v", err)
@@ -182,7 +182,7 @@ func TestBuildRelayAdvertiseAddresses_RejectsCircuitInput(t *testing.T) {
 		t.Fatalf("GenerateIdentity() error = %v", err)
 	}
 	_, err = buildRelayAdvertiseAddresses(
-		[]string{"/dns4/relay.example.com/tcp/6371/p2p/12D3KooWRelayPeer/p2p-circuit"},
+		[]string{"/dns4/relay.example.com/tcp/6372/p2p/12D3KooWRelayPeer/p2p-circuit"},
 		identity.PeerID,
 	)
 	if err == nil {

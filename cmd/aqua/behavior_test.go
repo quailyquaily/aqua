@@ -195,7 +195,7 @@ func TestServeDryRunJSON_WithRelayBuildsCircuitAddress(t *testing.T) {
 		"serve",
 		"--dryrun",
 		"--json",
-		"--listen", "/ip4/127.0.0.1/tcp/6371",
+		"--listen", "/ip4/127.0.0.1/tcp/6372",
 		"--relay", relayEndpoint,
 		"--relay-mode", "required",
 	)
@@ -212,7 +212,7 @@ func TestServeDryRunJSON_WithRelayBuildsCircuitAddress(t *testing.T) {
 		t.Fatalf("peer_id should not be empty in dryrun output")
 	}
 
-	wantDirect := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", peerID)
+	wantDirect := fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", peerID)
 	wantRelay := fmt.Sprintf("/dns4/relay.example.com/tcp/6372/p2p/%s/p2p-circuit/p2p/%s", relayIdentity.PeerID, peerID)
 
 	addresses, ok := view["addresses"].([]any)

@@ -13,9 +13,8 @@ import (
 )
 
 var serveDefaultListenAddrs = []string{
-	"/ip4/0.0.0.0/udp/6371/quic-v1",
-	"/ip4/0.0.0.0/tcp/6371",
-	"/ip4/0.0.0.0/tcp/6372/ws",
+	"/ip4/0.0.0.0/udp/6372/quic-v1",
+	"/ip4/0.0.0.0/tcp/6372",
 }
 
 func newServeCmd() *cobra.Command {
@@ -126,7 +125,7 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default tries /ip4/0.0.0.0/udp/6371/quic-v1, /ip4/0.0.0.0/tcp/6371 and /ip4/0.0.0.0/tcp/6372/ws, then falls back to random ports")
+	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default tries /ip4/0.0.0.0/udp/6372/quic-v1 and /ip4/0.0.0.0/tcp/6372, then falls back to random ports")
 	cmd.Flags().StringArrayVar(&relayAddrs, "relay", nil, "Relay multiaddr (repeatable, must end with /p2p/<relay_peer_id>)")
 	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")

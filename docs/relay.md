@@ -23,8 +23,8 @@ Run relay service:
 
 ```bash
 aqua relay serve \
-  --listen /ip4/0.0.0.0/tcp/6371 \
-  --listen /ip4/0.0.0.0/tcp/6372/ws
+  --listen /ip4/0.0.0.0/tcp/6372 \
+  --listen /ip4/0.0.0.0/udp/6372/quic-v1
 ```
 
 Allowlist mode:
@@ -47,7 +47,7 @@ Run edge node with relay reservation:
 
 ```bash
 aqua serve \
-  --relay /dns4/relay.example.com/tcp/6371/p2p/<relay_peer_id> \
+  --relay /dns4/relay.example.com/tcp/6372/p2p/<relay_peer_id> \
   --relay-mode auto
 ```
 
@@ -72,8 +72,8 @@ Relay-aware export:
 
 ```bash
 aqua card export \
-  --listen /ip4/0.0.0.0/tcp/6371 \
-  --relay /dns4/relay.example.com/tcp/6371/p2p/<relay_peer_id> \
+  --listen /ip4/0.0.0.0/tcp/6372 \
+  --relay /dns4/relay.example.com/tcp/6372/p2p/<relay_peer_id> \
   --advertise both
 ```
 

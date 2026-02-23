@@ -20,7 +20,7 @@ func TestDialAddrInfoForTarget_Direct(t *testing.T) {
 	if err != nil {
 		t.Fatalf("peer.Decode(target) error = %v", err)
 	}
-	raw := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", targetIdentity.PeerID)
+	raw := fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", targetIdentity.PeerID)
 
 	info, err := dialAddrInfoForTarget(raw, targetPeerID)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestDialAddrInfoForTarget_Direct(t *testing.T) {
 	if len(info.Addrs) != 1 {
 		t.Fatalf("addr count mismatch: got %d want 1", len(info.Addrs))
 	}
-	if got := info.Addrs[0].String(); got != "/ip4/127.0.0.1/tcp/6371" {
+	if got := info.Addrs[0].String(); got != "/ip4/127.0.0.1/tcp/6372" {
 		t.Fatalf("direct addr mismatch: got %q", got)
 	}
 }
@@ -90,7 +90,7 @@ func TestDialAddrInfoForTarget_RejectsMismatchedPeerID(t *testing.T) {
 		t.Fatalf("peer.Decode(target) error = %v", err)
 	}
 
-	raw := fmt.Sprintf("/ip4/127.0.0.1/tcp/6371/p2p/%s", otherIdentity.PeerID)
+	raw := fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", otherIdentity.PeerID)
 	_, err = dialAddrInfoForTarget(raw, targetPeerID)
 	if err == nil {
 		t.Fatalf("expected mismatched peer id to fail")

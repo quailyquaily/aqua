@@ -45,7 +45,7 @@ func TestFileStoreIdentityAndContacts(t *testing.T) {
 		PeerID:               "12D3KooWcontact",
 		NodeID:               "aqua:12D3KooWcontact",
 		IdentityPubEd25519:   "ccccccccccccccccccccccccccccccccccccccccccc",
-		Addresses:            []string{"/dns4/example.com/udp/6371/quic-v1/p2p/12D3KooWcontact"},
+		Addresses:            []string{"/dns4/example.com/udp/6372/quic-v1/p2p/12D3KooWcontact"},
 		MinSupportedProtocol: 1,
 		MaxSupportedProtocol: 1,
 		IssuedAt:             now,

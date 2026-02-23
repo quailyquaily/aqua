@@ -8,13 +8,13 @@ import (
 func TestHasWildcardListenAddress(t *testing.T) {
 	t.Parallel()
 
-	if !hasWildcardListenAddress([]string{"/ip4/0.0.0.0/tcp/6371"}) {
+	if !hasWildcardListenAddress([]string{"/ip4/0.0.0.0/tcp/6372"}) {
 		t.Fatalf("expected wildcard ip4 listen address to be detected")
 	}
-	if !hasWildcardListenAddress([]string{"/ip6/::/udp/6371/quic-v1"}) {
+	if !hasWildcardListenAddress([]string{"/ip6/::/udp/6372/quic-v1"}) {
 		t.Fatalf("expected wildcard ip6 listen address to be detected")
 	}
-	if hasWildcardListenAddress([]string{"/ip4/192.168.1.10/tcp/6371"}) {
+	if hasWildcardListenAddress([]string{"/ip4/192.168.1.10/tcp/6372"}) {
 		t.Fatalf("did not expect specific listen address to be wildcard")
 	}
 }
@@ -23,8 +23,8 @@ func TestExpandAdvertiseAddresses_AddsInterfaceVariants(t *testing.T) {
 	t.Parallel()
 
 	base := []string{
-		"/ip4/192.168.1.10/tcp/6371",
-		"/ip4/192.168.1.10/udp/6371/quic-v1",
+		"/ip4/192.168.1.10/tcp/6372",
+		"/ip4/192.168.1.10/udp/6372/quic-v1",
 	}
 	localIPs := []net.IP{
 		net.ParseIP("192.168.1.10"),
@@ -39,10 +39,10 @@ func TestExpandAdvertiseAddresses_AddsInterfaceVariants(t *testing.T) {
 	}
 
 	expected := []string{
-		"/ip4/192.168.1.10/tcp/6371",
-		"/ip4/192.168.1.10/udp/6371/quic-v1",
-		"/ip4/100.64.0.8/tcp/6371",
-		"/ip4/100.64.0.8/udp/6371/quic-v1",
+		"/ip4/192.168.1.10/tcp/6372",
+		"/ip4/192.168.1.10/udp/6372/quic-v1",
+		"/ip4/100.64.0.8/tcp/6372",
+		"/ip4/100.64.0.8/udp/6372/quic-v1",
 	}
 	for _, addr := range expected {
 		if !m[addr] {
@@ -55,8 +55,8 @@ func TestExpandAdvertiseAddresses_DedupesResults(t *testing.T) {
 	t.Parallel()
 
 	base := []string{
-		"/ip4/100.64.0.8/tcp/6371",
-		"/ip4/100.64.0.8/tcp/6371",
+		"/ip4/100.64.0.8/tcp/6372",
+		"/ip4/100.64.0.8/tcp/6372",
 	}
 	localIPs := []net.IP{
 		net.ParseIP("100.64.0.8"),
@@ -69,15 +69,18 @@ func TestExpandAdvertiseAddresses_DedupesResults(t *testing.T) {
 	}
 }
 
-func TestDefaultListenAddrs_IncludeWebSocket(t *testing.T) {
+func TestDefaultListenAddrs_IncludeUDPAndTCP(t *testing.T) {
 	t.Parallel()
 
 	preferred := defaultPreferredListenAddrs()
 	if len(preferred) == 0 {
 		t.Fatalf("defaultPreferredListenAddrs should not be empty")
 	}
-	if !containsAddress(preferred, "/ip4/0.0.0.0/tcp/6372/ws") {
-		t.Fatalf("defaultPreferredListenAddrs missing ws entry: %v", preferred)
+	if !containsAddress(preferred, "/ip4/0.0.0.0/udp/6372/quic-v1") {
+		t.Fatalf("defaultPreferredListenAddrs missing quic entry: %v", preferred)
+	}
+	if !containsAddress(preferred, "/ip4/0.0.0.0/tcp/6372") {
+		t.Fatalf("defaultPreferredListenAddrs missing tcp entry: %v", preferred)
 	}
 
 	fallback := defaultFallbackListenAddrs()

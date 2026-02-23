@@ -25,7 +25,7 @@ func TestLibp2pNetworkOptions_ListenModeUsesConfiguredAddresses(t *testing.T) {
 	t.Parallel()
 
 	listen := []string{
-		"/ip4/0.0.0.0/tcp/6371",
+		"/ip4/0.0.0.0/tcp/6372",
 		"/ip4/0.0.0.0/tcp/6372/ws",
 	}
 	var cfg libp2p.Config

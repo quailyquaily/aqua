@@ -88,7 +88,7 @@ aqua serve
 aqua serve --dryrun --json
 
 # 3) Add peer contact directly (no card file exchange)
-aqua contacts add /ip4/1.2.3.4/tcp/6371/p2p/<peer_id> --verify
+aqua contacts add /ip4/1.2.3.4/tcp/6372/p2p/<peer_id> --verify
 
 # 4) Handshake and send
 aqua send <peer_id> "hello"
@@ -99,14 +99,14 @@ aqua send <peer_id> "hello"
 ```bash
 # 1) Start relay service on relay machine
 aqua relay serve \
-  --listen /ip4/0.0.0.0/tcp/6371 \
-  --listen /ip4/0.0.0.0/tcp/6372/ws
+  --listen /ip4/0.0.0.0/tcp/6372 \
+  --listen /ip4/0.0.0.0/udp/6372/quic-v1
 
 # 2) Start edge node with relay on each client machine
-aqua serve --relay /dns4/<relay-host>/tcp/6371/p2p/<relay_peer_id> --relay-mode auto
+aqua serve --relay /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id> --relay-mode auto
 
 # 3) Relay-aware address publish (optional)
-aqua card export --relay /dns4/<relay-host>/tcp/6371/p2p/<relay_peer_id> --advertise both
+aqua card export --relay /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id> --advertise both
 ```
 
 ## AI Agent Skill

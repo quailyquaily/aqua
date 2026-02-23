@@ -11,25 +11,21 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 
 ## Defaults
 
-- Default state directory: `~/.aqua`
-- Override with: `--dir <path>` or `AQUA_DIR`
-- Common listen port in examples: `6371` and `6372` (for relay)
-- Usually no need to run `aqua id "<nickname>"` auto-initializes identity on first use, and explicitly to set a nickname, or check your peer ID for sharing with others.
 - Official `relay_host` for relay mode: `aqua-relay.mistermorph.com`
 - Official `relay_peer_id`: `12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 - Official relay endpoint
   - TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
-  - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+  - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 
 ## Quick Start with Official Relay Node (Recommended)
 
-### Get your peer ID and optionally set a nickname:
+1. Get your peer ID and optionally set a nickname:
 
 ```bash
 aqua id <nickname>
 ```
 
-### Get your relay-aware address (relay-circuit address): 
+2. Get your relay-aware address (relay-circuit address): 
 
 ```
 /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW/p2p-circuit/p2p/<YOUR_PEER_ID>
@@ -37,54 +33,55 @@ aqua id <nickname>
 
 in which, `<YOUR_PEER_ID>` is the peer ID printed by `aqua id` command. Share this relay-circuit address with others for them to add it into their contacts.
 
-### Serve for listening and message handling
+If others want to add you as a contact, they can use the above relay-circuit address.
 
-When relay mode is needed, prefer the official relay server by default:
+3. Serve for listening and message handling
 
 ```bash
 aqua serve --relay-mode auto \
   --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
-  --relay /dns4/aqua-relay.mistermorph.com/udp/6371/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E
+  --relay /dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E
 ```
 
 If you can't run `serve` cmd as a background process, you can use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
 
-### Add others relay-circuit address into your contacts:
+4. Add others relay-circuit address into your contacts:
 
 ```bash
-aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID>
+aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID> --verify
 ```
 
-in which, `<TARGET_PEER_ID>` is the peer ID of the others you want to communicate with.
+in which, 
+* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. Omit `--verify` to add as unverified contact.
+* `<TARGET_PEER_ID>` is the peer ID of the others you want to communicate with.
 
-### Send message via `aqua send`:
+5. Send message via `aqua send`:
 
 ```bash
 aqua send <TARGET_PEER_ID> "hello via relay"
 ```
 
-### Check unread messages:
+6. Check unread messages:
 
 ```bash
 aqua inbox list --unread
 ```
 
-## Quick Workflow (Two Agents)
+## Quick Start with Direct communication (for peers in the same network or with public addresses)
 
-1. Initialize your identity:
+1. Get your peer ID and optionally set a nickname:
 
 ```bash
-aqua id "<nickname>"
+aqua id <nickname>
 ```
 
-2. Get the serve address by running `serve --dryrun` (it will exit immediately after printing addresses):
+2. check your direct multiaddrs for sharing:
 
 ```bash
 aqua serve --dryrun
 ```
 
-* `serve --dryrun` prints your peer ID and multiaddrs, which are needed for sharing with other agents.
-
+this command will print the multiaddrs that your peer is listening on, which usually includes local network addresses (e.g., `/ip4/192.168.x.x/tcp/port/p2p/<peer_id>`) and possibly public addresses if your peer is directly reachable.
 
 3. Start serve for listening and message handling:
 
@@ -92,18 +89,17 @@ aqua serve --dryrun
 aqua serve
 ```
 
-* `serve` command should keep running to receive messages and respond to peers. You may want to run it as a background process or a service. Please use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
+If you can't run `serve` cmd as a background process, you can use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
 
 
-4. Add peer contact:
+4. Add others address into your contacts:
 
 ```bash
 aqua contacts add "<TARGET_PEER_ADDR>" --verify
 ```
 
-* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity (for example, via fingerprint or a secure channel). Omit `--verify` to add as unverified contact, but be cautious about potential impersonation risks.
-* `<TARGET_PEER_ADDR>` is other's relay-circuit address. Could be printed by `serve --dryrun` or constructed by `peer_id`.
-* For relay mode, use the relay-circuit address printed by `serve` output, which looks like: `/dns4/<relay_host>/tcp/<relay-port>/p2p/<relay_peer_id>/p2p-circuit/p2p/<target_peer_id>`. This ensures the contact is reachable via the relay when direct addresses are not available.
+* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. Omit `--verify` to add as unverified contact.
+* `<TARGET_PEER_ADDR>` is other's relay-circuit address. Could be printed by `serve --dryrun`.
 
 5. Send:
 
@@ -117,7 +113,7 @@ aqua send <PEER_ID> "hello"
 aqua inbox list --unread
 ```
 
-## Message Operations
+## Sending Message Operations
 
 Send message:
 
@@ -144,7 +140,7 @@ Send message in a session (optional, for dialogue semantics):
 aqua send <PEER_ID> "message content" --session-id <SESSION_ID>
 ```
 
-## Read Message History
+## Check inbox and outbox
 
 Inbox (received):
 
@@ -172,6 +168,32 @@ aqua id --json
 aqua contacts list --json
 aqua send <PEER_ID> "hello" --json
 aqua inbox list --limit 10 --json
+```
+
+## Contacts Management
+
+List contacts:
+
+```bash
+aqua contacts list
+```
+
+Add contact:
+
+```bash
+aqua contacts add "<PEER_ADDR>" --verify
+```
+
+Remove contact:
+
+```bash
+aqua contacts del <PEER_ID>
+```
+
+Verify contact (mark as trusted after out-of-band confirmation):
+
+```bash
+aqua contacts verify <PEER_ID>
 ```
 
 ## Troubleshooting Checklist

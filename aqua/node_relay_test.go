@@ -351,3 +351,65 @@ func TestRelayAdvertiseBaseAddrs(t *testing.T) {
 		t.Fatalf("reservation-only relay advertise addr count mismatch: got %d want 2 (%v)", len(emptyConfigured), emptyConfigured)
 	}
 }
+
+func TestRelayReservationRenewDelay(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 2, 23, 2, 0, 0, 0, time.UTC)
+
+	t.Run("uses expiration with lead time", func(t *testing.T) {
+		t.Parallel()
+
+		got := relayReservationRenewDelay(now, now.Add(time.Hour))
+		want := 58 * time.Minute
+		if got != want {
+			t.Fatalf("relayReservationRenewDelay() = %s, want %s", got, want)
+		}
+	})
+
+	t.Run("enforces min interval near expiration", func(t *testing.T) {
+		t.Parallel()
+
+		got := relayReservationRenewDelay(now, now.Add(90*time.Second))
+		if got != relayRenewMinInterval {
+			t.Fatalf("relayReservationRenewDelay() = %s, want %s", got, relayRenewMinInterval)
+		}
+	})
+
+	t.Run("uses fallback interval without expiration", func(t *testing.T) {
+		t.Parallel()
+
+		got := relayReservationRenewDelay(now, time.Time{})
+		if got != relayRenewFallback {
+			t.Fatalf("relayReservationRenewDelay() = %s, want %s", got, relayRenewFallback)
+		}
+	})
+}
+
+func TestNextRelayReservationRetryDelay(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current time.Duration
+		want    time.Duration
+	}{
+		{name: "zero uses min", current: 0, want: relayRetryMinInterval},
+		{name: "negative uses min", current: -time.Second, want: relayRetryMinInterval},
+		{name: "doubles", current: relayRetryMinInterval, want: 10 * time.Second},
+		{name: "caps at max", current: 70 * time.Second, want: relayRetryMaxInterval},
+		{name: "max stays max", current: relayRetryMaxInterval, want: relayRetryMaxInterval},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := nextRelayReservationRetryDelay(tt.current)
+			if got != tt.want {
+				t.Fatalf("nextRelayReservationRetryDelay() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

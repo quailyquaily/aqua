@@ -32,6 +32,11 @@ const (
 	incomingFlushInterval     = 200 * time.Millisecond
 	incomingDedupePrunePeriod = time.Second
 	storeWriteTimeout         = 2 * time.Second
+	relayRenewLeadTime        = 2 * time.Minute
+	relayRenewMinInterval     = 30 * time.Second
+	relayRenewFallback        = 15 * time.Minute
+	relayRetryMinInterval     = 5 * time.Second
+	relayRetryMaxInterval     = 2 * time.Minute
 )
 
 type NodeOptions struct {
@@ -82,6 +87,9 @@ type Node struct {
 
 	relayMu             sync.RWMutex
 	relayAdvertiseAddrs []string
+	relayLoopMu         sync.Mutex
+	relayLoopCancel     context.CancelFunc
+	relayWG             sync.WaitGroup
 }
 
 type pushRateWindow struct {
@@ -160,13 +168,16 @@ func NewNode(ctx context.Context, svc *Service, opts NodeOptions) (*Node, error)
 	n.startIncomingWriter()
 
 	if !options.DialOnly && options.RelayMode != RelayModeOff && len(options.RelayAddrs) > 0 {
-		if err := n.reserveConfiguredRelays(ctx); err != nil {
+		expiresAt, err := n.reserveConfiguredRelays(ctx)
+		if err != nil {
 			if options.RelayMode == RelayModeRequired {
 				_ = h.Close()
+				n.stopIncomingWriter()
 				return nil, fmt.Errorf("reserve relays: %w", err)
 			}
 			n.opts.Logger.Warn("relay reservation unavailable", "err", err)
 		}
+		n.startRelayReservationLoop(expiresAt)
 	}
 
 	return n, nil
@@ -176,6 +187,7 @@ func (n *Node) Close() error {
 	if n == nil {
 		return nil
 	}
+	n.stopRelayReservationLoop()
 	var closeErr error
 	if n.host != nil {
 		closeErr = n.host.Close()
@@ -416,6 +428,33 @@ func (n *Node) startIncomingWriter() {
 	go n.runIncomingWriter()
 }
 
+func (n *Node) startRelayReservationLoop(initialExpiration time.Time) {
+	if n == nil || n.opts.DialOnly || n.opts.RelayMode == RelayModeOff || len(n.opts.RelayAddrs) == 0 {
+		return
+	}
+	n.relayLoopMu.Lock()
+	if n.relayLoopCancel != nil {
+		n.relayLoopMu.Unlock()
+		return
+	}
+	loopCtx, cancel := context.WithCancel(context.Background())
+	n.relayLoopCancel = cancel
+	n.relayLoopMu.Unlock()
+
+	firstDelay := relayRetryMinInterval
+	if !initialExpiration.IsZero() {
+		firstDelay = relayReservationRenewDelay(time.Now().UTC(), initialExpiration)
+	}
+	n.opts.Logger.Debug(
+		"relay reservation loop started",
+		"first_attempt_in", firstDelay,
+		"initial_expires_at", initialExpiration,
+	)
+
+	n.relayWG.Add(1)
+	go n.runRelayReservationLoop(loopCtx, firstDelay)
+}
+
 func (n *Node) stopIncomingWriter() {
 	if n == nil {
 		return
@@ -426,6 +465,67 @@ func (n *Node) stopIncomingWriter() {
 		}
 		n.incomingWG.Wait()
 	})
+}
+
+func (n *Node) stopRelayReservationLoop() {
+	if n == nil {
+		return
+	}
+	n.relayLoopMu.Lock()
+	cancel := n.relayLoopCancel
+	n.relayLoopCancel = nil
+	n.relayLoopMu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	n.relayWG.Wait()
+}
+
+func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Duration) {
+	defer n.relayWG.Done()
+	if n == nil {
+		return
+	}
+	if firstDelay <= 0 {
+		firstDelay = relayRetryMinInterval
+	}
+	timer := time.NewTimer(firstDelay)
+	defer timer.Stop()
+	retryDelay := relayRetryMinInterval
+
+	for {
+		select {
+		case <-ctx.Done():
+			n.opts.Logger.Debug("relay reservation loop stopped")
+			return
+		case <-timer.C:
+		}
+
+		expiresAt, err := n.reserveConfiguredRelays(ctx)
+		if ctx.Err() != nil {
+			n.opts.Logger.Debug("relay reservation loop stopped")
+			return
+		}
+		nextDelay := retryDelay
+		if err != nil {
+			n.opts.Logger.Warn(
+				"relay reservation refresh failed",
+				"err", err,
+				"next_retry_in", nextDelay,
+			)
+			retryDelay = nextRelayReservationRetryDelay(retryDelay)
+		} else {
+			retryDelay = relayRetryMinInterval
+			nextDelay = relayReservationRenewDelay(time.Now().UTC(), expiresAt)
+			n.opts.Logger.Debug(
+				"relay reservation refresh scheduled",
+				"next_attempt_in", nextDelay,
+				"expires_at", expiresAt,
+			)
+		}
+		timer.Reset(nextDelay)
+	}
 }
 
 func (n *Node) runIncomingWriter() {
@@ -1422,18 +1522,18 @@ func relayPeerIDFromCircuitAddress(address string) string {
 	return relayPeerID
 }
 
-func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
+func (n *Node) reserveConfiguredRelays(ctx context.Context) (time.Time, error) {
 	infos, err := parseRelayAddrInfos(n.opts.RelayAddrs)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if len(infos) == 0 {
 		n.setRelayAdvertiseAddrs(nil)
-		return fmt.Errorf("no valid relay addresses configured")
+		return time.Time{}, fmt.Errorf("no valid relay addresses configured")
 	}
 	if err := rejectRelayInfosForLocalPeerID(infos, n.host.ID()); err != nil {
 		n.setRelayAdvertiseAddrs(nil)
-		return err
+		return time.Time{}, err
 	}
 	n.opts.Logger.Debug(
 		"relay reservation start",
@@ -1443,6 +1543,7 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 
 	relayAddrs := make([]string, 0, len(infos))
 	successCount := 0
+	earliestExpiration := time.Time{}
 	for _, info := range infos {
 		n.opts.Logger.Debug(
 			"relay reservation attempt",
@@ -1476,31 +1577,37 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 		}
 		addrs := relayAdvertiseBaseAddrs(info, reservationAddrs, n.opts.Logger)
 		relayAddrs = append(relayAddrs, addrs...)
+		expiration := reservation.Expiration.UTC()
+		if !expiration.IsZero() && (earliestExpiration.IsZero() || expiration.Before(earliestExpiration)) {
+			earliestExpiration = expiration
+		}
 		n.opts.Logger.Debug(
 			"relay reservation ok",
 			"relay_peer_id", info.ID.String(),
 			"relay_advertise_count", len(addrs),
+			"expires_at", expiration,
 		)
 
 		n.emitRelayEvent(RelayEvent{
 			Event:       "relay.reservation.ok",
 			Path:        "relay",
 			RelayPeerID: info.ID.String(),
-			Reason:      fmt.Sprintf("expires_at=%s", reservation.Expiration.UTC().Format(time.RFC3339)),
+			Reason:      fmt.Sprintf("expires_at=%s", expiration.Format(time.RFC3339)),
 			Timestamp:   time.Now().UTC(),
 		})
 	}
 
-	n.setRelayAdvertiseAddrs(relayAddrs)
 	if successCount == 0 {
-		return fmt.Errorf("no relay reservation succeeded")
+		return time.Time{}, fmt.Errorf("no relay reservation succeeded")
 	}
+	n.setRelayAdvertiseAddrs(relayAddrs)
 	n.opts.Logger.Debug(
 		"relay reservation completed",
 		"success_count", successCount,
 		"relay_advertise_total", len(relayAddrs),
+		"earliest_expires_at", earliestExpiration,
 	)
-	return nil
+	return earliestExpiration, nil
 }
 
 func (n *Node) setRelayAdvertiseAddrs(addrs []string) {
@@ -1703,6 +1810,34 @@ build:
 		return "", err
 	}
 	return base.Encapsulate(relayComponent).Encapsulate(circuitComponent).String(), nil
+}
+
+func relayReservationRenewDelay(now time.Time, expiresAt time.Time) time.Duration {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if expiresAt.IsZero() {
+		return relayRenewFallback
+	}
+	delay := expiresAt.Sub(now) - relayRenewLeadTime
+	if delay < relayRenewMinInterval {
+		return relayRenewMinInterval
+	}
+	return delay
+}
+
+func nextRelayReservationRetryDelay(current time.Duration) time.Duration {
+	if current <= 0 {
+		return relayRetryMinInterval
+	}
+	next := current * 2
+	if next < relayRetryMinInterval {
+		return relayRetryMinInterval
+	}
+	if next > relayRetryMaxInterval {
+		return relayRetryMaxInterval
+	}
+	return next
 }
 
 func (n *Node) hasFreshSession(peerID string) bool {

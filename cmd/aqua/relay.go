@@ -32,6 +32,8 @@ func newRelayServeCmd() *cobra.Command {
 	var listenAddrs []string
 	var allowlist []string
 	var outputJSON bool
+	var maxReservations int
+	var maxReservationsPerIP int
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -58,6 +60,10 @@ func newRelayServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resources, err := resolveRelayResources(maxReservations, maxReservationsPerIP)
+			if err != nil {
+				return err
+			}
 
 			logger, err := loggerFromCmd(cmd)
 			if err != nil {
@@ -67,6 +73,8 @@ func newRelayServeCmd() *cobra.Command {
 				"relay serve config",
 				"listen_addrs", resolvedListenAddrs,
 				"allowlist_count", len(allowedPeers),
+				"max_reservations", resources.MaxReservations,
+				"max_reservations_per_ip", resources.MaxReservationsPerIP,
 			)
 			acl := relayAllowlistACL{allowed: allowedPeers, logger: logger}
 			h, err := libp2p.New(
@@ -75,7 +83,10 @@ func newRelayServeCmd() *cobra.Command {
 				// Dedicated relay mode should always expose the v2 hop protocol,
 				// even when AutoNAT reports private/unknown reachability.
 				libp2p.ForceReachabilityPublic(),
-				libp2p.EnableRelayService(relayv2.WithACL(acl)),
+				libp2p.EnableRelayService(
+					relayv2.WithACL(acl),
+					relayv2.WithResources(resources),
+				),
 			)
 			if err != nil {
 				return fmt.Errorf("create relay host: %w", err)
@@ -92,15 +103,19 @@ func newRelayServeCmd() *cobra.Command {
 
 			if outputJSON {
 				_ = writeJSON(cmd.OutOrStdout(), map[string]any{
-					"status":      "ready",
-					"peer_id":     h.ID().String(),
-					"node_uuid":   identity.NodeUUID,
-					"addresses":   addresses,
-					"allowlist":   allowlistOut,
-					"allow_all":   len(allowedPeers) == 0,
-					"listen":      resolvedListenAddrs,
-					"service":     "relay",
-					"relay_mode":  "server",
+					"status":     "ready",
+					"peer_id":    h.ID().String(),
+					"node_uuid":  identity.NodeUUID,
+					"addresses":  addresses,
+					"allowlist":  allowlistOut,
+					"allow_all":  len(allowedPeers) == 0,
+					"listen":     resolvedListenAddrs,
+					"service":    "relay",
+					"relay_mode": "server",
+					"resources": map[string]any{
+						"max_reservations":        resources.MaxReservations,
+						"max_reservations_per_ip": resources.MaxReservationsPerIP,
+					},
 					"started_at":  time.Now().UTC(),
 					"protocol_id": "libp2p.relay/v2",
 				})
@@ -116,6 +131,8 @@ func newRelayServeCmd() *cobra.Command {
 				for _, addr := range addresses {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "address: %s\n", addr)
 				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "max_reservations: %d\n", resources.MaxReservations)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "max_reservations_per_ip: %d\n", resources.MaxReservationsPerIP)
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "waiting for relay traffic... (Ctrl+C to stop)")
 			}
 
@@ -126,8 +143,30 @@ func newRelayServeCmd() *cobra.Command {
 
 	cmd.Flags().StringArrayVar(&listenAddrs, "listen", []string{"/ip4/0.0.0.0/tcp/6372", "/ip4/0.0.0.0/udp/6372/quic-v1"}, "Relay listen multiaddr (repeatable)")
 	cmd.Flags().StringArrayVar(&allowlist, "allow-peer", nil, "Allowlist peer id (repeatable, default empty means allow all peers)")
+	cmd.Flags().IntVar(&maxReservations, "max-reservations", 512, "Maximum number of active relay reservations")
+	cmd.Flags().IntVar(&maxReservationsPerIP, "max-reservations-per-ip", 4, "Maximum number of relay reservations per source IP")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status as JSON")
 	return cmd
+}
+
+func resolveRelayResources(maxReservations int, maxReservationsPerIP int) (relayv2.Resources, error) {
+	if maxReservations <= 0 {
+		return relayv2.Resources{}, fmt.Errorf("invalid --max-reservations %d (must be > 0)", maxReservations)
+	}
+	if maxReservationsPerIP <= 0 {
+		return relayv2.Resources{}, fmt.Errorf("invalid --max-reservations-per-ip %d (must be > 0)", maxReservationsPerIP)
+	}
+	if maxReservationsPerIP > maxReservations {
+		return relayv2.Resources{}, fmt.Errorf(
+			"invalid relay limits: --max-reservations-per-ip (%d) must be <= --max-reservations (%d)",
+			maxReservationsPerIP,
+			maxReservations,
+		)
+	}
+	resources := relayv2.DefaultResources()
+	resources.MaxReservations = maxReservations
+	resources.MaxReservationsPerIP = maxReservationsPerIP
+	return resources, nil
 }
 
 type relayAllowlistACL struct {

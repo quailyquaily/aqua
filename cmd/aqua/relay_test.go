@@ -187,3 +187,42 @@ func TestExpandAdvertiseAddressesForListenAddrs_NoWildcard(t *testing.T) {
 		t.Fatalf("expandAdvertiseAddressesForListenAddrs() = %v, want [/ip4/0.0.0.0/tcp/6372]", got)
 	}
 }
+
+func TestResolveRelayResources(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := resolveRelayResources(512, 4)
+		if err != nil {
+			t.Fatalf("resolveRelayResources() error = %v", err)
+		}
+		if got.MaxReservations != 512 {
+			t.Fatalf("MaxReservations = %d, want 512", got.MaxReservations)
+		}
+		if got.MaxReservationsPerIP != 4 {
+			t.Fatalf("MaxReservationsPerIP = %d, want 4", got.MaxReservationsPerIP)
+		}
+	})
+
+	tests := []struct {
+		name                 string
+		maxReservations      int
+		maxReservationsPerIP int
+	}{
+		{name: "non positive max reservations", maxReservations: 0, maxReservationsPerIP: 4},
+		{name: "non positive per ip", maxReservations: 512, maxReservationsPerIP: 0},
+		{name: "per ip exceeds total", maxReservations: 4, maxReservationsPerIP: 8},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := resolveRelayResources(tt.maxReservations, tt.maxReservationsPerIP); err == nil {
+				t.Fatalf("resolveRelayResources(%d, %d) expected error", tt.maxReservations, tt.maxReservationsPerIP)
+			}
+		})
+	}
+}

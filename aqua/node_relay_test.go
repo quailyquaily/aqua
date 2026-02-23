@@ -203,3 +203,88 @@ func TestRejectRelayInfosForLocalPeerID(t *testing.T) {
 		t.Fatalf("rejectRelayInfosForLocalPeerID() unexpected error = %v", err)
 	}
 }
+
+func TestCanonicalRelayCircuitBaseAddr(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := GenerateIdentity(time.Date(2026, 2, 23, 10, 20, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	targetIdentity, err := GenerateIdentity(time.Date(2026, 2, 23, 10, 20, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(target) error = %v", err)
+	}
+	relayID, err := peer.Decode(relayIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("peer.Decode(relay) error = %v", err)
+	}
+
+	t.Run("adds missing p2p-circuit", func(t *testing.T) {
+		t.Parallel()
+
+		raw := fmt.Sprintf("/ip4/43.206.8.204/udp/6372/quic-v1/p2p/%s", relayIdentity.PeerID)
+		got, err := canonicalRelayCircuitBaseAddr(raw, relayID)
+		if err != nil {
+			t.Fatalf("canonicalRelayCircuitBaseAddr() error = %v", err)
+		}
+		want := fmt.Sprintf("/ip4/43.206.8.204/udp/6372/quic-v1/p2p/%s/p2p-circuit", relayIdentity.PeerID)
+		if got != want {
+			t.Fatalf("canonical relay addr mismatch: got %q want %q", got, want)
+		}
+	})
+
+	t.Run("drops target suffix after circuit", func(t *testing.T) {
+		t.Parallel()
+
+		raw := fmt.Sprintf(
+			"/dns4/relay.example.com/tcp/6372/p2p/%s/p2p-circuit/p2p/%s",
+			relayIdentity.PeerID,
+			targetIdentity.PeerID,
+		)
+		got, err := canonicalRelayCircuitBaseAddr(raw, relayID)
+		if err != nil {
+			t.Fatalf("canonicalRelayCircuitBaseAddr() error = %v", err)
+		}
+		want := fmt.Sprintf("/dns4/relay.example.com/tcp/6372/p2p/%s/p2p-circuit", relayIdentity.PeerID)
+		if got != want {
+			t.Fatalf("canonical relay addr mismatch: got %q want %q", got, want)
+		}
+	})
+}
+
+func TestNormalizeRelayReservationAddrs(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := GenerateIdentity(time.Date(2026, 2, 23, 10, 30, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	relayID, err := peer.Decode(relayIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("peer.Decode(relay) error = %v", err)
+	}
+
+	raw := []string{
+		fmt.Sprintf("/ip4/18.179.41.50/tcp/6372/p2p/%s", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/18.179.41.50/udp/6372/quic-v1/p2p/%s", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/18.179.41.50/tcp/6372/p2p/%s/p2p-circuit/p2p/12D3KooWTarget", relayIdentity.PeerID),
+	}
+	got := normalizeRelayReservationAddrs(raw, relayID, nil)
+	gotSet := map[string]bool{}
+	for _, addr := range got {
+		gotSet[addr] = true
+	}
+	expect := []string{
+		fmt.Sprintf("/ip4/18.179.41.50/tcp/6372/p2p/%s/p2p-circuit", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/18.179.41.50/udp/6372/quic-v1/p2p/%s/p2p-circuit", relayIdentity.PeerID),
+	}
+	if len(gotSet) != len(expect) {
+		t.Fatalf("normalized relay addr count mismatch: got %d want %d (%v)", len(gotSet), len(expect), got)
+	}
+	for _, want := range expect {
+		if !gotSet[want] {
+			t.Fatalf("missing normalized relay addr %q in %v", want, got)
+		}
+	}
+}

@@ -1474,7 +1474,7 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 		for _, addr := range reservation.Addrs {
 			addrs = append(addrs, strings.TrimSpace(addr.String()))
 		}
-		addrs = normalizeAddresses(addrs)
+		addrs = normalizeRelayReservationAddrs(addrs, info.ID, n.opts.Logger)
 		if len(addrs) == 0 {
 			addrs = buildRelayCircuitBaseAddrs(info)
 		}
@@ -1636,6 +1636,64 @@ func buildRelayCircuitBaseAddrs(info peer.AddrInfo) []string {
 		out = append(out, relayAddr.Encapsulate(relayComponent).Encapsulate(circuitComponent).String())
 	}
 	return normalizeAddresses(out)
+}
+
+func normalizeRelayReservationAddrs(rawAddrs []string, relayPeerID peer.ID, logger *slog.Logger) []string {
+	if relayPeerID == "" {
+		return nil
+	}
+	out := make([]string, 0, len(rawAddrs))
+	for _, raw := range normalizeAddresses(rawAddrs) {
+		canonical, err := canonicalRelayCircuitBaseAddr(raw, relayPeerID)
+		if err != nil {
+			if logger != nil {
+				logger.Debug("ignore invalid relay reservation addr", "raw", raw, "relay_peer_id", relayPeerID.String(), "err", err)
+			}
+			continue
+		}
+		out = append(out, canonical)
+	}
+	return normalizeAddresses(out)
+}
+
+func canonicalRelayCircuitBaseAddr(raw string, relayPeerID peer.ID) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("empty relay reservation address")
+	}
+	maddr, err := ma.NewMultiaddr(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid relay reservation address %q: %w", raw, err)
+	}
+	parts := ma.Split(maddr)
+	transportParts := make([]ma.Multiaddr, 0, len(parts))
+	for i := range parts {
+		part := &parts[i]
+		switch part.Protocol().Code {
+		case ma.P_P2P, ma.P_CIRCUIT:
+			goto build
+		default:
+			transportParts = append(transportParts, part.Multiaddr())
+		}
+	}
+
+build:
+	if len(transportParts) == 0 {
+		return "", fmt.Errorf("relay reservation address %q missing transport part", raw)
+	}
+	base := transportParts[0]
+	for i := 1; i < len(transportParts); i++ {
+		base = base.Encapsulate(transportParts[i])
+	}
+	relayComponent, err := ma.NewMultiaddr("/p2p/" + relayPeerID.String())
+	if err != nil {
+		return "", err
+	}
+	circuitComponent, err := ma.NewMultiaddr("/p2p-circuit")
+	if err != nil {
+		return "", err
+	}
+	return base.Encapsulate(relayComponent).Encapsulate(circuitComponent).String(), nil
 }
 
 func (n *Node) hasFreshSession(peerID string) bool {

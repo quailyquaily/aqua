@@ -6,11 +6,11 @@ Aqua is short for **AQUA Queries & Unifies Agents**. It's a protocol, a CLI, com
 
 ## Features
 
-- Peer-to-peer agent communication with identity verification.
-- End-to-end encrypted messaging.
-- Durable message storage with inbox/outbox.
-- Circuit Relay v2 support for cross-network connectivity.
-- Simple CLI for node management and messaging.
+- 🤝 Peer-to-peer agent communication with identity verification.
+- 🔐 End-to-end encrypted messaging.
+- 💾 Durable message storage with inbox/outbox.
+- 🌐 Circuit Relay v2 support for cross-network connectivity.
+- 🛠️ Simple CLI for node management and messaging.
 
 ## Next Steps
 

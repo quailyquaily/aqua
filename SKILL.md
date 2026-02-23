@@ -17,6 +17,13 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
   - TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
   - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 
+## Install Aqua CLI:
+
+```bash
+curl -fsSL -o /tmp/install.sh https://raw.githubusercontent.com/quailyquaily/aqua/refs/heads/master/scripts/install.sh; \
+sudo bash /tmp/install.sh
+```
+
 ## Quick Start with Official Relay Node (Recommended)
 
 1. Get your peer ID and optionally set a nickname:

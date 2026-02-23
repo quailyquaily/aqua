@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sort"
@@ -66,7 +68,7 @@ func newRelayServeCmd() *cobra.Command {
 				"listen_addrs", resolvedListenAddrs,
 				"allowlist_count", len(allowedPeers),
 			)
-			acl := relayAllowlistACL{allowed: allowedPeers}
+			acl := relayAllowlistACL{allowed: allowedPeers, logger: logger}
 			h, err := libp2p.New(
 				libp2p.Identity(priv),
 				libp2p.ListenAddrStrings(resolvedListenAddrs...),
@@ -130,20 +132,46 @@ func newRelayServeCmd() *cobra.Command {
 
 type relayAllowlistACL struct {
 	allowed map[peer.ID]bool
+	logger  *slog.Logger
 }
 
-func (a relayAllowlistACL) AllowReserve(p peer.ID, _ ma.Multiaddr) bool {
-	if len(a.allowed) == 0 {
-		return true
+func (a relayAllowlistACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
+	allowed := len(a.allowed) == 0 || a.allowed[p]
+	if a.logger != nil {
+		level := slog.LevelInfo
+		if !allowed {
+			level = slog.LevelWarn
+		}
+		a.logger.Log(
+			context.Background(),
+			level,
+			"relay reservation request",
+			"peer_id", p.String(),
+			"source_addr", relayMultiaddrString(addr),
+			"allowed", allowed,
+		)
 	}
-	return a.allowed[p]
+	return allowed
 }
 
-func (a relayAllowlistACL) AllowConnect(src peer.ID, _ ma.Multiaddr, dest peer.ID) bool {
-	if len(a.allowed) == 0 {
-		return true
+func (a relayAllowlistACL) AllowConnect(src peer.ID, addr ma.Multiaddr, dest peer.ID) bool {
+	allowed := len(a.allowed) == 0 || (a.allowed[src] && a.allowed[dest])
+	if a.logger != nil {
+		level := slog.LevelInfo
+		if !allowed {
+			level = slog.LevelWarn
+		}
+		a.logger.Log(
+			context.Background(),
+			level,
+			"relay circuit request",
+			"src_peer_id", src.String(),
+			"dest_peer_id", dest.String(),
+			"source_addr", relayMultiaddrString(addr),
+			"allowed", allowed,
+		)
 	}
-	return a.allowed[src] && a.allowed[dest]
+	return allowed
 }
 
 func parseRelayAllowlist(raw []string) (map[peer.ID]bool, error) {
@@ -187,4 +215,11 @@ func hostP2PAddrStrings(base []ma.Multiaddr, id peer.ID) ([]string, error) {
 		out = append(out, addr.Encapsulate(p2pComponent).String())
 	}
 	return normalizeAddressList(out), nil
+}
+
+func relayMultiaddrString(addr ma.Multiaddr) string {
+	if addr == nil {
+		return ""
+	}
+	return strings.TrimSpace(addr.String())
 }

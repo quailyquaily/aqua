@@ -32,7 +32,7 @@ const (
 	incomingFlushInterval     = 200 * time.Millisecond
 	incomingDedupePrunePeriod = time.Second
 	storeWriteTimeout         = 2 * time.Second
-	relayRenewLeadTime        = 2 * time.Minute
+	relayRenewLeadTime        = 5 * time.Minute
 	relayRenewMinInterval     = 30 * time.Second
 	relayRenewFallback        = 15 * time.Minute
 	relayRetryMinInterval     = 5 * time.Second
@@ -501,6 +501,17 @@ func (n *Node) runRelayReservationLoop(ctx context.Context, firstDelay time.Dura
 			return
 		case <-timer.C:
 		}
+
+		n.opts.Logger.Debug(
+			"relay reservation refresh start",
+			"relay_count", len(n.opts.RelayAddrs),
+		)
+		n.emitRelayEvent(RelayEvent{
+			Event:     "relay.reservation.refresh.start",
+			Path:      "relay",
+			Reason:    fmt.Sprintf("relay_count=%d", len(n.opts.RelayAddrs)),
+			Timestamp: time.Now().UTC(),
+		})
 
 		expiresAt, err := n.reserveConfiguredRelays(ctx)
 		if ctx.Err() != nil {

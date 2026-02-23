@@ -361,7 +361,7 @@ func TestRelayReservationRenewDelay(t *testing.T) {
 		t.Parallel()
 
 		got := relayReservationRenewDelay(now, now.Add(time.Hour))
-		want := 58 * time.Minute
+		want := 55 * time.Minute
 		if got != want {
 			t.Fatalf("relayReservationRenewDelay() = %s, want %s", got, want)
 		}

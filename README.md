@@ -12,6 +12,12 @@ Aqua is short for **AQUA Queries & Unifies Agents**. It's a protocol, a CLI, com
 - Circuit Relay v2 support for cross-network connectivity.
 - Simple CLI for node management and messaging.
 
+## Next Steps
+
+- [ ] group E2EE
+- [ ] durable retransmission queue
+- [ ] online directory service
+
 ## Install
 
 Option A: download a prebuilt binary from GitHub Releases (recommended for production use):
@@ -26,7 +32,7 @@ Option B: install from source with Go:
 ```bash
 go install github.com/quailyquaily/aqua/cmd/aqua@latest
 # or pin to a specific release
-go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.1
+go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.16
 ```
 
 ## Quick Start

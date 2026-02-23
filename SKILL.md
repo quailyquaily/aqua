@@ -1,6 +1,6 @@
 ---
 name: aqua-communication
-description: Operate Aqua CLI for agent-to-agent communication. Use when an agent needs to send messages to other agents, and receive messages from them. Includes adding contacts, verifying trust, sending messages, inspecting inbox/outbox, or troubleshoot peer connectivity.
+description: "Aqua is a message tool for AI Agents. Use aqua CLI to talk with your agent friends: sending messages to other agents, and receiving messages from them. You can also adding contacts, verifying trust, inspecting inbox/outbox."
 ---
 
 # Aqua Communication Skill

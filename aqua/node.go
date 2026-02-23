@@ -1470,14 +1470,11 @@ func (n *Node) reserveConfiguredRelays(ctx context.Context) error {
 		}
 
 		successCount++
-		addrs := make([]string, 0, len(reservation.Addrs))
+		reservationAddrs := make([]string, 0, len(reservation.Addrs))
 		for _, addr := range reservation.Addrs {
-			addrs = append(addrs, strings.TrimSpace(addr.String()))
+			reservationAddrs = append(reservationAddrs, strings.TrimSpace(addr.String()))
 		}
-		addrs = normalizeRelayReservationAddrs(addrs, info.ID, n.opts.Logger)
-		if len(addrs) == 0 {
-			addrs = buildRelayCircuitBaseAddrs(info)
-		}
+		addrs := relayAdvertiseBaseAddrs(info, reservationAddrs, n.opts.Logger)
 		relayAddrs = append(relayAddrs, addrs...)
 		n.opts.Logger.Debug(
 			"relay reservation ok",
@@ -1636,6 +1633,18 @@ func buildRelayCircuitBaseAddrs(info peer.AddrInfo) []string {
 		out = append(out, relayAddr.Encapsulate(relayComponent).Encapsulate(circuitComponent).String())
 	}
 	return normalizeAddresses(out)
+}
+
+func relayAdvertiseBaseAddrs(info peer.AddrInfo, reservationAddrs []string, logger *slog.Logger) []string {
+	configured := buildRelayCircuitBaseAddrs(info)
+	reserved := normalizeRelayReservationAddrs(reservationAddrs, info.ID, logger)
+	if len(configured) == 0 {
+		return reserved
+	}
+	if len(reserved) == 0 {
+		return configured
+	}
+	return normalizeAddresses(append(configured, reserved...))
 }
 
 func normalizeRelayReservationAddrs(rawAddrs []string, relayPeerID peer.ID, logger *slog.Logger) []string {

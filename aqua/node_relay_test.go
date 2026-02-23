@@ -288,3 +288,66 @@ func TestNormalizeRelayReservationAddrs(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayAdvertiseBaseAddrs(t *testing.T) {
+	t.Parallel()
+
+	relayIdentity, err := GenerateIdentity(time.Date(2026, 2, 23, 10, 40, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(relay) error = %v", err)
+	}
+	targetIdentity, err := GenerateIdentity(time.Date(2026, 2, 23, 10, 40, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GenerateIdentity(target) error = %v", err)
+	}
+	relayID, err := peer.Decode(relayIdentity.PeerID)
+	if err != nil {
+		t.Fatalf("peer.Decode(relay) error = %v", err)
+	}
+
+	infos, err := parseRelayAddrInfos([]string{
+		fmt.Sprintf("/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/%s", relayIdentity.PeerID),
+		fmt.Sprintf("/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/%s", relayIdentity.PeerID),
+	})
+	if err != nil {
+		t.Fatalf("parseRelayAddrInfos() error = %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("relay info count mismatch: got %d want 1", len(infos))
+	}
+
+	reservation := []string{
+		fmt.Sprintf("/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/%s", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/43.206.8.204/tcp/6372/p2p/%s/p2p-circuit/p2p/%s", relayIdentity.PeerID, targetIdentity.PeerID),
+	}
+
+	got := relayAdvertiseBaseAddrs(infos[0], reservation, nil)
+	gotSet := map[string]bool{}
+	for _, addr := range got {
+		gotSet[addr] = true
+	}
+
+	expect := []string{
+		fmt.Sprintf("/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/%s/p2p-circuit", relayIdentity.PeerID),
+		fmt.Sprintf("/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/%s/p2p-circuit", relayIdentity.PeerID),
+		fmt.Sprintf("/ip4/43.206.8.204/tcp/6372/p2p/%s/p2p-circuit", relayIdentity.PeerID),
+	}
+	if len(gotSet) != len(expect) {
+		t.Fatalf("relay advertise addr count mismatch: got %d want %d (%v)", len(gotSet), len(expect), got)
+	}
+	for _, want := range expect {
+		if !gotSet[want] {
+			t.Fatalf("missing relay advertise addr %q in %v", want, got)
+		}
+	}
+
+	onlyConfigured := relayAdvertiseBaseAddrs(infos[0], nil, nil)
+	if len(onlyConfigured) != 2 {
+		t.Fatalf("configured-only relay advertise addr count mismatch: got %d want 2 (%v)", len(onlyConfigured), onlyConfigured)
+	}
+
+	emptyConfigured := relayAdvertiseBaseAddrs(peer.AddrInfo{ID: relayID}, reservation, nil)
+	if len(emptyConfigured) != 2 {
+		t.Fatalf("reservation-only relay advertise addr count mismatch: got %d want 2 (%v)", len(emptyConfigured), emptyConfigured)
+	}
+}

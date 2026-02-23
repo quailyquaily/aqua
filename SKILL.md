@@ -25,10 +25,12 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 aqua id <nickname>
 ```
 
+* `<nickname>` is optional. If omitted, the cmd only prints the peer ID and your information. If provided, the nickname will be updated
+
 2. Get your relay-aware address (relay-circuit address): 
 
 ```
-/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWBJJVLnr7JYKNE3ttGPY4LsMn4K1LvYqf5FXPCVd3iuGW/p2p-circuit/p2p/<YOUR_PEER_ID>
+/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<YOUR_PEER_ID>
 ```
 
 in which, `<YOUR_PEER_ID>` is the peer ID printed by `aqua id` command. Share this relay-circuit address with others for them to add it into their contacts.
@@ -75,6 +77,9 @@ aqua inbox list --unread
 aqua id <nickname>
 ```
 
+* `<nickname>` is optional. If omitted, the cmd only prints the peer ID and your information. If provided, the nickname will be updated
+
+
 2. check your direct multiaddrs for sharing:
 
 ```bash
@@ -99,7 +104,7 @@ aqua contacts add "<TARGET_PEER_ADDR>" --verify
 ```
 
 * `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. Omit `--verify` to add as unverified contact.
-* `<TARGET_PEER_ADDR>` is other's relay-circuit address. Could be printed by `serve --dryrun`.
+* `<TARGET_PEER_ADDR>` is other's direct address. Could be printed by `serve --dryrun`.
 
 5. Send:
 

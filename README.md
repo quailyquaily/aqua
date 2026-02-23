@@ -1,6 +1,8 @@
 # Aqua
 
-Aqua is **AQUA Queries & Unifies Agents**. It's a protocol, a cli, comes from [`mistermorph`](https://mistermorph.com).
+Aqua is a message tool for AI Agents.
+
+Aqua is short for **AQUA Queries & Unifies Agents**. It's a protocol, a CLI, comes from [`mistermorph`](https://mistermorph.com).
 
 ## Features
 
@@ -19,20 +21,6 @@ curl -fsSL -o /tmp/install.sh https://raw.githubusercontent.com/quailyquaily/aqu
 sudo bash /tmp/install.sh
 ```
 
-The installer supports:
-
-```bash
-bash install.sh <version-tag>
-INSTALL_DIR="$HOME/.local/bin" bash install.sh <version-tag>
-```
-
-If you already cloned this repo, you can run:
-
-```bash
-./scripts/install.sh
-INSTALL_DIR="$HOME/.local/bin" ./scripts/install.sh v0.1.0
-```
-
 Option B: install from source with Go:
 
 ```bash
@@ -41,78 +29,46 @@ go install github.com/quailyquaily/aqua/cmd/aqua@latest
 go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.1
 ```
 
-Make sure your `$GOBIN` (or `$GOPATH/bin`) is in `PATH`.
-
-GitHub Releases:
-`https://github.com/quailyquaily/aqua/releases`
-
-## Build
-
-```bash
-go build -o ./bin/aqua ./cmd/aqua
-```
-
-## Release Automation
-
-`aqua` uses GoReleaser in GitHub Actions:
-
-- Config: `.goreleaser.yaml`
-- Workflow: `.github/workflows/release.yml`
-- Trigger (release): push tag matching `v*` (for example `v0.1.0`)
-- Trigger (snapshot): manual `workflow_dispatch`
-
-Release artifacts are built for:
-
-- `linux/darwin/windows`
-- `amd64/arm64`
-
-Version metadata is injected into `aqua version` via ldflags (`version`, `commit`, `date`).
-
-Tag release example:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
 ## Quick Start
 
-```bash
-# 1) Initialize identity
-aqua init
-
-# 2) Start node
-aqua serve
-
-# (optional) Print derived advertise addresses without listening
-aqua serve --dryrun --json
-
-# 3) Add peer contact directly (no card file exchange)
-aqua contacts add /ip4/1.2.3.4/tcp/6372/p2p/<peer_id> --verify
-
-# 4) Handshake and send
-aqua send <peer_id> "hello"
-```
+| Machine A | Machine B |
+| --- | --- |
+| `aqua id alice`, note `<A_PEER_ID>` | `aqua id bob`, note `<B_PEER_ID>` |
+| `aqua serve`<br>copy one `address: ...` as `<A_ADDR>`  | `aqua serve`<br>copy one `address: ...` as `<B_ADDR>` |
+| `aqua contacts add "<B_ADDR>" --verify` | `aqua contacts add "<A_ADDR>" --verify` |
+| `aqua send <B_PEER_ID> "hello from A"` | `aqua send <A_PEER_ID> "hello from B"` |
+| `aqua inbox list --unread --limit 10` | `aqua inbox list --unread --limit 10` |
 
 ## Relay Quick Start
 
+With `--relay-mode auto`, Aqua tries direct connectivity first and falls back to relay when direct dialing is unavailable.
+
 ```bash
-# 1) Start relay service on relay machine
-aqua relay serve \
-  --listen /ip4/0.0.0.0/tcp/6372 \
-  --listen /ip4/0.0.0.0/udp/6372/quic-v1
+# 1) On each node, get peer ID
+aqua id <nickname>
 
-# 2) Start edge node with relay on each client machine
-aqua serve --relay /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id> --relay-mode auto
+# 2) Start node with relay endpoints
+aqua serve --relay-mode auto \
+  --relay /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id> \
+  --relay /dns4/<relay-host>/udp/6372/quic-v1/p2p/<relay_peer_id>
 
-# 3) Relay-aware address publish (optional)
-aqua card export --relay /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id> --advertise both
+# 3) From `aqua serve` output, copy your relay-circuit address:
+# /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id>/p2p-circuit/p2p/<your_peer_id>
+# Share it with your peer and add peer's relay-circuit address:
+aqua contacts add "<peer_relay_circuit_addr>" --verify
+
+# 4) Handshake and send
+aqua send <peer_id> "hello via relay"
 ```
+
+Official relay endpoints:
+
+- TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+- UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 
 ## AI Agent Skill
 
-For agents that need to communicate over Aqua, see `SKILL.md`.
-It explains practical command flows (`init`/`serve`/`contacts add`/`hello`/`send`) and troubleshooting.
+For agents that need to communicate over Aqua, see [`SKILL.md`](SKILL.md).
 
 ## Data Directory
 
@@ -133,6 +89,14 @@ You can override it with:
 - `hello`, `ping`, `capabilities`, `send` (`--relay-mode auto|off|required`)
 - `inbox list/mark-read`, `outbox list`
 - `version`
+
+## Development
+
+### Build
+
+```bash
+go build -o ./bin/aqua ./cmd/aqua
+```
 
 ## Documentation
 

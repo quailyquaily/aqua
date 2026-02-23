@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -232,4 +234,140 @@ func TestServeDryRunJSON_WithRelayBuildsCircuitAddress(t *testing.T) {
 	if !gotSet[wantRelay] {
 		t.Fatalf("missing relay circuit address %q in %v", wantRelay, gotSet)
 	}
+}
+
+func TestContactsImportJSON(t *testing.T) {
+	dir := t.TempDir()
+	cardPath, remotePeerID := writeContactCardFixture(t)
+
+	stdout, stderr, err := executeCLI(t, "--dir", dir, "contacts", "import", cardPath, "--json")
+	if err != nil {
+		t.Fatalf("contacts import --json error = %v, stderr=%s", err, stderr)
+	}
+
+	var view map[string]any
+	if err := json.Unmarshal([]byte(stdout), &view); err != nil {
+		t.Fatalf("decode contacts import json error = %v, stdout=%s", err, stdout)
+	}
+	if got, _ := view["status"].(string); got != "created" {
+		t.Fatalf("status mismatch: got %q want %q", got, "created")
+	}
+	if got, _ := view["peer_id"].(string); got != remotePeerID {
+		t.Fatalf("peer_id mismatch: got %q want %q", got, remotePeerID)
+	}
+	if got, _ := view["trust_state"].(string); got != string(aqua.TrustStateTOFU) {
+		t.Fatalf("trust_state mismatch: got %q want %q", got, aqua.TrustStateTOFU)
+	}
+}
+
+func TestContactsVerifyJSON(t *testing.T) {
+	dir := t.TempDir()
+	contact := seedImportedContact(t, dir)
+
+	stdout, stderr, err := executeCLI(t, "--dir", dir, "contacts", "verify", contact.PeerID, "--json")
+	if err != nil {
+		t.Fatalf("contacts verify --json error = %v, stderr=%s", err, stderr)
+	}
+
+	var view map[string]any
+	if err := json.Unmarshal([]byte(stdout), &view); err != nil {
+		t.Fatalf("decode contacts verify json error = %v, stdout=%s", err, stdout)
+	}
+	if got, _ := view["peer_id"].(string); got != contact.PeerID {
+		t.Fatalf("peer_id mismatch: got %q want %q", got, contact.PeerID)
+	}
+	if got, _ := view["trust_state"].(string); got != string(aqua.TrustStateVerified) {
+		t.Fatalf("trust_state mismatch: got %q want %q", got, aqua.TrustStateVerified)
+	}
+}
+
+func TestContactsDelJSON(t *testing.T) {
+	dir := t.TempDir()
+	contact := seedImportedContact(t, dir)
+
+	stdout, stderr, err := executeCLI(t, "--dir", dir, "contacts", "del", contact.PeerID, "--json")
+	if err != nil {
+		t.Fatalf("contacts del --json error = %v, stderr=%s", err, stderr)
+	}
+
+	var view map[string]any
+	if err := json.Unmarshal([]byte(stdout), &view); err != nil {
+		t.Fatalf("decode contacts del json error = %v, stdout=%s", err, stdout)
+	}
+	if deleted, ok := view["deleted"].(bool); !ok || !deleted {
+		t.Fatalf("deleted flag mismatch: got %#v", view["deleted"])
+	}
+	if got, _ := view["peer_id"].(string); got != contact.PeerID {
+		t.Fatalf("peer_id mismatch: got %q want %q", got, contact.PeerID)
+	}
+
+	svc := aqua.NewService(aqua.NewFileStore(dir))
+	_, ok, err := svc.GetContactByPeerID(context.Background(), contact.PeerID)
+	if err != nil {
+		t.Fatalf("GetContactByPeerID() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("expected contact to be deleted")
+	}
+}
+
+func writeContactCardFixture(t *testing.T) (string, string) {
+	t.Helper()
+
+	now := time.Date(2026, 2, 23, 12, 0, 0, 0, time.UTC)
+	remoteSvc := aqua.NewService(aqua.NewFileStore(filepath.Join(t.TempDir(), "remote")))
+	identity, _, err := remoteSvc.EnsureIdentity(context.Background(), now)
+	if err != nil {
+		t.Fatalf("EnsureIdentity(remote) error = %v", err)
+	}
+	addresses := []string{fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", identity.PeerID)}
+	_, rawCard, err := remoteSvc.ExportContactCard(
+		context.Background(),
+		addresses,
+		aqua.ProtocolVersionV1,
+		aqua.ProtocolVersionV1,
+		now,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ExportContactCard(remote) error = %v", err)
+	}
+	cardPath := filepath.Join(t.TempDir(), "contact_card.json")
+	if err := os.WriteFile(cardPath, rawCard, 0o600); err != nil {
+		t.Fatalf("WriteFile(contact_card) error = %v", err)
+	}
+	return cardPath, identity.PeerID
+}
+
+func seedImportedContact(t *testing.T, dir string) aqua.Contact {
+	t.Helper()
+
+	now := time.Date(2026, 2, 23, 12, 5, 0, 0, time.UTC)
+	remoteSvc := aqua.NewService(aqua.NewFileStore(filepath.Join(t.TempDir(), "remote-seed")))
+	remoteIdentity, _, err := remoteSvc.EnsureIdentity(context.Background(), now)
+	if err != nil {
+		t.Fatalf("EnsureIdentity(remote seed) error = %v", err)
+	}
+	addresses := []string{fmt.Sprintf("/ip4/127.0.0.1/tcp/6372/p2p/%s", remoteIdentity.PeerID)}
+	_, rawCard, err := remoteSvc.ExportContactCard(
+		context.Background(),
+		addresses,
+		aqua.ProtocolVersionV1,
+		aqua.ProtocolVersionV1,
+		now,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ExportContactCard(remote seed) error = %v", err)
+	}
+
+	localSvc := aqua.NewService(aqua.NewFileStore(dir))
+	if _, _, err := localSvc.EnsureIdentity(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatalf("EnsureIdentity(local seed) error = %v", err)
+	}
+	result, err := localSvc.ImportContactCard(context.Background(), rawCard, "", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("ImportContactCard(local seed) error = %v", err)
+	}
+	return result.Contact
 }

@@ -65,6 +65,7 @@ func newContactsListCmd() *cobra.Command {
 
 func newContactsImportCmd() *cobra.Command {
 	var displayName string
+	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "import <contact_card.json|->",
 		Short: "Import a contact card",
@@ -87,11 +88,21 @@ func newContactsImportCmd() *cobra.Command {
 			if result.Created {
 				status = "created"
 			}
+			if outputJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"status":      status,
+					"peer_id":     result.Contact.PeerID,
+					"node_uuid":   result.Contact.NodeUUID,
+					"trust_state": result.Contact.TrustState,
+					"conflicted":  result.Conflicted,
+				})
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: %s\npeer_id: %s\nnode_uuid: %s\ntrust_state: %s\n", status, result.Contact.PeerID, result.Contact.NodeUUID, result.Contact.TrustState)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&displayName, "display-name", "", "Display name override for this contact")
+	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }
 
@@ -185,19 +196,28 @@ func newContactsAddCmd() *cobra.Command {
 }
 
 func newContactsDelCmd() *cobra.Command {
+	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "del <peer_id>",
 		Short: "Delete a contact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			if err := svc.DeleteContact(cmd.Context(), args[0], time.Now().UTC()); err != nil {
+			peerID := strings.TrimSpace(args[0])
+			if err := svc.DeleteContact(cmd.Context(), peerID, time.Now().UTC()); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", strings.TrimSpace(args[0]))
+			if outputJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"deleted": true,
+					"peer_id": peerID,
+				})
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "deleted: %s\n", peerID)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }
 
@@ -249,6 +269,7 @@ func newContactsShowCmd() *cobra.Command {
 }
 
 func newContactsVerifyCmd() *cobra.Command {
+	var outputJSON bool
 	cmd := &cobra.Command{
 		Use:   "verify <peer_id>",
 		Short: "Mark contact as verified after out-of-band fingerprint check",
@@ -259,9 +280,16 @@ func newContactsVerifyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if outputJSON {
+				return writeJSON(cmd.OutOrStdout(), map[string]any{
+					"peer_id":     contact.PeerID,
+					"trust_state": contact.TrustState,
+				})
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "peer_id: %s\ntrust_state: %s\n", contact.PeerID, contact.TrustState)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }

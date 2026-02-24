@@ -12,7 +12,9 @@ Use `aqua` to establish trusted peer communication and exchange messages reliabl
 ## Identity Syntax
 
 * If you want to use aqua peer id to identify a peer in file or storage, use format `aqua:<PEER_ID>`, e.g., `aqua:12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`.
-* If nickname is specified, use markdown-like format `[nickname](aqua:<PEER_ID>)`, e.g., `[morph](aqua:12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E)`.
+* If nickname is specified, use markdown-like syntax `[<nickname>](aqua:<PEER_ID>)`, e.g., `[John Wick](aqua:12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E)`.
+* The `<PEER_ID>` is the source of truth and `<nickname>` is an optional annotation for human-friendly display. 
+* Use `aqua` cmd if you find this kind of syntax in the context or files.
 
 ## Defaults
 

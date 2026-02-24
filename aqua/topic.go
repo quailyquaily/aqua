@@ -10,3 +10,11 @@ func IsDialogueTopic(topic string) bool {
 		return false
 	}
 }
+
+func IsGroupControlTopic(topic string) bool {
+	return strings.EqualFold(strings.TrimSpace(topic), GroupControlTopicV1)
+}
+
+func IsGroupMessageTopic(topic string) bool {
+	return strings.EqualFold(strings.TrimSpace(topic), GroupMessageTopicV1)
+}

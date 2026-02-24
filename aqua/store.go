@@ -23,4 +23,13 @@ type Store interface {
 	GetDedupeRecord(ctx context.Context, fromPeerID string, topic string, idempotencyKey string) (DedupeRecord, bool, error)
 	PutDedupeRecord(ctx context.Context, record DedupeRecord) error
 	PruneDedupeRecords(ctx context.Context, now time.Time, maxEntries int) (int, error)
+	GetGroup(ctx context.Context, groupID string) (Group, bool, error)
+	PutGroup(ctx context.Context, group Group) error
+	ListGroups(ctx context.Context) ([]Group, error)
+	GetGroupRoleState(ctx context.Context, groupID string) (GroupRoleState, bool, error)
+	PutGroupRoleState(ctx context.Context, state GroupRoleState) error
+	GetGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
+	PutGroupMembers(ctx context.Context, groupID string, members []GroupMember) error
+	GetGroupInvites(ctx context.Context, groupID string) ([]GroupInvite, error)
+	PutGroupInvites(ctx context.Context, groupID string, invites []GroupInvite) error
 }

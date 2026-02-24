@@ -20,6 +20,10 @@ const (
 	contactsFileVersion       = 1
 	dedupeFileVersion         = 1
 	inboxReadStateFileVersion = 1
+	groupsFileVersion         = 1
+	groupRolesFileVersion     = 1
+	groupMembersFileVersion   = 1
+	groupInvitesFileVersion   = 1
 )
 
 type FileStore struct {
@@ -41,6 +45,26 @@ type dedupeFile struct {
 type inboxReadStateFile struct {
 	Version int                  `json:"version"`
 	Read    map[string]time.Time `json:"read"`
+}
+
+type groupsFile struct {
+	Version int     `json:"version"`
+	Groups  []Group `json:"groups"`
+}
+
+type groupRolesFile struct {
+	Version int              `json:"version"`
+	States  []GroupRoleState `json:"states"`
+}
+
+type groupMembersFile struct {
+	Version int           `json:"version"`
+	Members []GroupMember `json:"members"`
+}
+
+type groupInvitesFile struct {
+	Version int           `json:"version"`
+	Invites []GroupInvite `json:"invites"`
 }
 
 func NewFileStore(root string) *FileStore {
@@ -565,6 +589,250 @@ func (s *FileStore) PruneDedupeRecords(ctx context.Context, now time.Time, maxEn
 	return removed, nil
 }
 
+func (s *FileStore) GetGroup(ctx context.Context, groupID string) (Group, bool, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return Group{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return Group{}, false, nil
+	}
+	groups, err := s.loadGroupsLocked()
+	if err != nil {
+		return Group{}, false, err
+	}
+	for _, group := range groups {
+		if strings.TrimSpace(group.GroupID) == groupID {
+			return group, true, nil
+		}
+	}
+	return Group{}, false, nil
+}
+
+func (s *FileStore) PutGroup(ctx context.Context, group Group) error {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withGroupLock(ctx, func() error {
+		groups, err := s.loadGroupsLocked()
+		if err != nil {
+			return err
+		}
+		group.GroupID = strings.TrimSpace(group.GroupID)
+		if group.GroupID == "" {
+			return nil
+		}
+		group.ManagerPeerIDs = normalizePeerIDs(group.ManagerPeerIDs)
+		group.LocalRole = GroupRole(strings.TrimSpace(string(group.LocalRole)))
+		if group.MaxMembers <= 0 {
+			group.MaxMembers = GroupMaxMembers
+		}
+		replaced := false
+		for i := range groups {
+			if strings.TrimSpace(groups[i].GroupID) == group.GroupID {
+				if groups[i].CreatedAt.IsZero() {
+					groups[i].CreatedAt = group.CreatedAt
+				}
+				group.CreatedAt = groups[i].CreatedAt
+				groups[i] = group
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			groups = append(groups, group)
+		}
+		return s.saveGroupsLocked(groups)
+	})
+}
+
+func (s *FileStore) ListGroups(ctx context.Context) ([]Group, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groups, err := s.loadGroupsLocked()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Group, len(groups))
+	copy(out, groups)
+	return out, nil
+}
+
+func (s *FileStore) GetGroupRoleState(ctx context.Context, groupID string) (GroupRoleState, bool, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return GroupRoleState{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return GroupRoleState{}, false, nil
+	}
+	states, err := s.loadGroupRoleStatesLocked()
+	if err != nil {
+		return GroupRoleState{}, false, err
+	}
+	for _, state := range states {
+		if strings.TrimSpace(state.GroupID) == groupID {
+			return state, true, nil
+		}
+	}
+	return GroupRoleState{}, false, nil
+}
+
+func (s *FileStore) PutGroupRoleState(ctx context.Context, state GroupRoleState) error {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withGroupLock(ctx, func() error {
+		states, err := s.loadGroupRoleStatesLocked()
+		if err != nil {
+			return err
+		}
+		state.GroupID = strings.TrimSpace(state.GroupID)
+		if state.GroupID == "" {
+			return nil
+		}
+		state.Roles = normalizeGroupRoleEntries(state.Roles)
+		replaced := false
+		for i := range states {
+			if strings.TrimSpace(states[i].GroupID) == state.GroupID {
+				states[i] = state
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			states = append(states, state)
+		}
+		return s.saveGroupRoleStatesLocked(states)
+	})
+}
+
+func (s *FileStore) GetGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groupID = strings.TrimSpace(groupID)
+	members, err := s.loadGroupMembersLocked()
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]GroupMember, 0, len(members))
+	for _, member := range members {
+		if groupID != "" && strings.TrimSpace(member.GroupID) != groupID {
+			continue
+		}
+		filtered = append(filtered, member)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		left := strings.TrimSpace(filtered[i].PeerID)
+		right := strings.TrimSpace(filtered[j].PeerID)
+		if left == right {
+			return filtered[i].UpdatedAt.Before(filtered[j].UpdatedAt)
+		}
+		return left < right
+	})
+	return filtered, nil
+}
+
+func (s *FileStore) PutGroupMembers(ctx context.Context, groupID string, members []GroupMember) error {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withGroupLock(ctx, func() error {
+		groupID = strings.TrimSpace(groupID)
+		if groupID == "" {
+			return nil
+		}
+		allMembers, err := s.loadGroupMembersLocked()
+		if err != nil {
+			return err
+		}
+		filtered := allMembers[:0]
+		for _, member := range allMembers {
+			if strings.TrimSpace(member.GroupID) == groupID {
+				continue
+			}
+			filtered = append(filtered, member)
+		}
+		filtered = append(filtered, normalizeGroupMembers(groupID, members)...)
+		return s.saveGroupMembersLocked(filtered)
+	})
+}
+
+func (s *FileStore) GetGroupInvites(ctx context.Context, groupID string) ([]GroupInvite, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groupID = strings.TrimSpace(groupID)
+	invites, err := s.loadGroupInvitesLocked()
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]GroupInvite, 0, len(invites))
+	for _, invite := range invites {
+		if groupID != "" && strings.TrimSpace(invite.GroupID) != groupID {
+			continue
+		}
+		filtered = append(filtered, invite)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].CreatedAt.Equal(filtered[j].CreatedAt) {
+			return strings.TrimSpace(filtered[i].InviteID) < strings.TrimSpace(filtered[j].InviteID)
+		}
+		return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+	})
+	return filtered, nil
+}
+
+func (s *FileStore) PutGroupInvites(ctx context.Context, groupID string, invites []GroupInvite) error {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withGroupLock(ctx, func() error {
+		groupID = strings.TrimSpace(groupID)
+		if groupID == "" {
+			return nil
+		}
+		allInvites, err := s.loadGroupInvitesLocked()
+		if err != nil {
+			return err
+		}
+		filtered := allInvites[:0]
+		for _, invite := range allInvites {
+			if strings.TrimSpace(invite.GroupID) == groupID {
+				continue
+			}
+			filtered = append(filtered, invite)
+		}
+		filtered = append(filtered, normalizeGroupInvites(groupID, invites)...)
+		return s.saveGroupInvitesLocked(filtered)
+	})
+}
+
 func (s *FileStore) loadContactsLocked() ([]Contact, error) {
 	var file contactsFile
 	ok, err := s.readJSONFile(s.contactsPath(), &file)
@@ -579,6 +847,177 @@ func (s *FileStore) loadContactsLocked() ([]Contact, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+func (s *FileStore) loadGroupsLocked() ([]Group, error) {
+	var file groupsFile
+	ok, err := s.readJSONFile(s.groupsPath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []Group{}, nil
+	}
+	out := make([]Group, 0, len(file.Groups))
+	for _, group := range file.Groups {
+		group.GroupID = strings.TrimSpace(group.GroupID)
+		if group.GroupID == "" {
+			continue
+		}
+		group.ManagerPeerIDs = normalizePeerIDs(group.ManagerPeerIDs)
+		group.LocalRole = GroupRole(strings.TrimSpace(string(group.LocalRole)))
+		if group.MaxMembers <= 0 {
+			group.MaxMembers = GroupMaxMembers
+		}
+		out = append(out, group)
+	}
+	return out, nil
+}
+
+func (s *FileStore) saveGroupsLocked(groups []Group) error {
+	sort.Slice(groups, func(i, j int) bool {
+		left := strings.TrimSpace(groups[i].GroupID)
+		right := strings.TrimSpace(groups[j].GroupID)
+		if left == right {
+			return groups[i].UpdatedAt.Before(groups[j].UpdatedAt)
+		}
+		return left < right
+	})
+
+	file := groupsFile{
+		Version: groupsFileVersion,
+		Groups:  groups,
+	}
+	return s.writeJSONFileAtomic(s.groupsPath(), file, 0o600)
+}
+
+func (s *FileStore) loadGroupRoleStatesLocked() ([]GroupRoleState, error) {
+	var file groupRolesFile
+	ok, err := s.readJSONFile(s.groupRolesPath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []GroupRoleState{}, nil
+	}
+	out := make([]GroupRoleState, 0, len(file.States))
+	for _, state := range file.States {
+		state.GroupID = strings.TrimSpace(state.GroupID)
+		if state.GroupID == "" {
+			continue
+		}
+		state.Roles = normalizeGroupRoleEntries(state.Roles)
+		out = append(out, state)
+	}
+	return out, nil
+}
+
+func (s *FileStore) saveGroupRoleStatesLocked(states []GroupRoleState) error {
+	sort.Slice(states, func(i, j int) bool {
+		return strings.TrimSpace(states[i].GroupID) < strings.TrimSpace(states[j].GroupID)
+	})
+	file := groupRolesFile{
+		Version: groupRolesFileVersion,
+		States:  states,
+	}
+	return s.writeJSONFileAtomic(s.groupRolesPath(), file, 0o600)
+}
+
+func (s *FileStore) loadGroupMembersLocked() ([]GroupMember, error) {
+	var file groupMembersFile
+	ok, err := s.readJSONFile(s.groupMembersPath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []GroupMember{}, nil
+	}
+	out := make([]GroupMember, 0, len(file.Members))
+	for _, member := range file.Members {
+		member.GroupID = strings.TrimSpace(member.GroupID)
+		member.PeerID = strings.TrimSpace(member.PeerID)
+		if member.GroupID == "" || member.PeerID == "" {
+			continue
+		}
+		if member.LastSeenAt != nil {
+			lastSeen := member.LastSeenAt.UTC()
+			member.LastSeenAt = &lastSeen
+		}
+		out = append(out, member)
+	}
+	return out, nil
+}
+
+func (s *FileStore) saveGroupMembersLocked(members []GroupMember) error {
+	sort.Slice(members, func(i, j int) bool {
+		leftGroup := strings.TrimSpace(members[i].GroupID)
+		rightGroup := strings.TrimSpace(members[j].GroupID)
+		if leftGroup != rightGroup {
+			return leftGroup < rightGroup
+		}
+		leftPeer := strings.TrimSpace(members[i].PeerID)
+		rightPeer := strings.TrimSpace(members[j].PeerID)
+		if leftPeer != rightPeer {
+			return leftPeer < rightPeer
+		}
+		return members[i].UpdatedAt.Before(members[j].UpdatedAt)
+	})
+	file := groupMembersFile{
+		Version: groupMembersFileVersion,
+		Members: members,
+	}
+	return s.writeJSONFileAtomic(s.groupMembersPath(), file, 0o600)
+}
+
+func (s *FileStore) loadGroupInvitesLocked() ([]GroupInvite, error) {
+	var file groupInvitesFile
+	ok, err := s.readJSONFile(s.groupInvitesPath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []GroupInvite{}, nil
+	}
+	out := make([]GroupInvite, 0, len(file.Invites))
+	for _, invite := range file.Invites {
+		invite.GroupID = strings.TrimSpace(invite.GroupID)
+		invite.InviteID = strings.TrimSpace(invite.InviteID)
+		invite.InviterPeerID = strings.TrimSpace(invite.InviterPeerID)
+		invite.InviteePeerID = strings.TrimSpace(invite.InviteePeerID)
+		if invite.GroupID == "" || invite.InviteID == "" {
+			continue
+		}
+		status, err := ParseGroupInviteStatus(string(invite.Status))
+		if err != nil {
+			continue
+		}
+		invite.Status = status
+		if invite.RespondedAt != nil {
+			at := invite.RespondedAt.UTC()
+			invite.RespondedAt = &at
+		}
+		out = append(out, invite)
+	}
+	return out, nil
+}
+
+func (s *FileStore) saveGroupInvitesLocked(invites []GroupInvite) error {
+	sort.Slice(invites, func(i, j int) bool {
+		leftGroup := strings.TrimSpace(invites[i].GroupID)
+		rightGroup := strings.TrimSpace(invites[j].GroupID)
+		if leftGroup != rightGroup {
+			return leftGroup < rightGroup
+		}
+		if invites[i].CreatedAt.Equal(invites[j].CreatedAt) {
+			return strings.TrimSpace(invites[i].InviteID) < strings.TrimSpace(invites[j].InviteID)
+		}
+		return invites[i].CreatedAt.After(invites[j].CreatedAt)
+	})
+	file := groupInvitesFile{
+		Version: groupInvitesFileVersion,
+		Invites: invites,
+	}
+	return s.writeJSONFileAtomic(s.groupInvitesPath(), file, 0o600)
 }
 
 func (s *FileStore) saveContactsLocked(contacts []Contact) error {
@@ -830,6 +1269,10 @@ func (s *FileStore) withStateLock(ctx context.Context, fn func() error) error {
 	return s.withLock(ctx, "state.main", fn)
 }
 
+func (s *FileStore) withGroupLock(ctx context.Context, fn func() error) error {
+	return s.withLock(ctx, "state.group", fn)
+}
+
 func (s *FileStore) withLock(ctx context.Context, key string, fn func() error) error {
 	lockPath, err := fsstore.BuildLockPath(s.lockRootPath(), key)
 	if err != nil {
@@ -862,6 +1305,22 @@ func (s *FileStore) outboxPathJSONL() string {
 	return filepath.Join(s.rootPath(), "outbox_messages.jsonl")
 }
 
+func (s *FileStore) groupsPath() string {
+	return filepath.Join(s.rootPath(), "groups.json")
+}
+
+func (s *FileStore) groupRolesPath() string {
+	return filepath.Join(s.rootPath(), "group_roles.json")
+}
+
+func (s *FileStore) groupMembersPath() string {
+	return filepath.Join(s.rootPath(), "group_members.json")
+}
+
+func (s *FileStore) groupInvitesPath() string {
+	return filepath.Join(s.rootPath(), "group_invites.json")
+}
+
 func normalizeMessageIDs(ids []string) []string {
 	if len(ids) == 0 {
 		return nil
@@ -876,5 +1335,130 @@ func normalizeMessageIDs(ids []string) []string {
 		seen[id] = true
 		out = append(out, id)
 	}
+	return out
+}
+
+func normalizePeerIDs(peerIDs []string) []string {
+	if len(peerIDs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(peerIDs))
+	seen := map[string]bool{}
+	for _, raw := range peerIDs {
+		peerID := strings.TrimSpace(raw)
+		if peerID == "" || seen[peerID] {
+			continue
+		}
+		seen[peerID] = true
+		out = append(out, peerID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeGroupRoleEntries(roles []GroupRoleEntry) []GroupRoleEntry {
+	if len(roles) == 0 {
+		return nil
+	}
+	out := make([]GroupRoleEntry, 0, len(roles))
+	seen := map[string]bool{}
+	for _, role := range roles {
+		role.PeerID = strings.TrimSpace(role.PeerID)
+		if role.PeerID == "" || seen[role.PeerID] {
+			continue
+		}
+		parsedRole, err := ParseGroupRole(string(role.Role))
+		if err != nil {
+			continue
+		}
+		role.Role = parsedRole
+		role.UpdatedAt = role.UpdatedAt.UTC()
+		if role.UpdatedAt.IsZero() {
+			role.UpdatedAt = time.Now().UTC()
+		}
+		seen[role.PeerID] = true
+		out = append(out, role)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.TrimSpace(out[i].PeerID) < strings.TrimSpace(out[j].PeerID)
+	})
+	return out
+}
+
+func normalizeGroupMembers(groupID string, members []GroupMember) []GroupMember {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || len(members) == 0 {
+		return nil
+	}
+	out := make([]GroupMember, 0, len(members))
+	seen := map[string]bool{}
+	for _, member := range members {
+		member.GroupID = groupID
+		member.PeerID = strings.TrimSpace(member.PeerID)
+		if member.PeerID == "" || seen[member.PeerID] {
+			continue
+		}
+		if member.JoinedAt.IsZero() {
+			member.JoinedAt = time.Now().UTC()
+		}
+		member.JoinedAt = member.JoinedAt.UTC()
+		if member.LastSeenAt != nil {
+			lastSeen := member.LastSeenAt.UTC()
+			member.LastSeenAt = &lastSeen
+		}
+		member.UpdatedAt = member.UpdatedAt.UTC()
+		if member.UpdatedAt.IsZero() {
+			member.UpdatedAt = time.Now().UTC()
+		}
+		seen[member.PeerID] = true
+		out = append(out, member)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.TrimSpace(out[i].PeerID) < strings.TrimSpace(out[j].PeerID)
+	})
+	return out
+}
+
+func normalizeGroupInvites(groupID string, invites []GroupInvite) []GroupInvite {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || len(invites) == 0 {
+		return nil
+	}
+	out := make([]GroupInvite, 0, len(invites))
+	seen := map[string]bool{}
+	for _, invite := range invites {
+		invite.GroupID = groupID
+		invite.InviteID = strings.TrimSpace(invite.InviteID)
+		invite.InviterPeerID = strings.TrimSpace(invite.InviterPeerID)
+		invite.InviteePeerID = strings.TrimSpace(invite.InviteePeerID)
+		if invite.InviteID == "" || seen[invite.InviteID] {
+			continue
+		}
+		status, err := ParseGroupInviteStatus(string(invite.Status))
+		if err != nil {
+			continue
+		}
+		invite.Status = status
+		invite.CreatedAt = invite.CreatedAt.UTC()
+		if invite.CreatedAt.IsZero() {
+			invite.CreatedAt = time.Now().UTC()
+		}
+		invite.ExpiresAt = invite.ExpiresAt.UTC()
+		if invite.ExpiresAt.IsZero() {
+			invite.ExpiresAt = invite.CreatedAt.Add(GroupInviteTTL)
+		}
+		if invite.RespondedAt != nil {
+			at := invite.RespondedAt.UTC()
+			invite.RespondedAt = &at
+		}
+		seen[invite.InviteID] = true
+		out = append(out, invite)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return strings.TrimSpace(out[i].InviteID) < strings.TrimSpace(out[j].InviteID)
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
 	return out
 }

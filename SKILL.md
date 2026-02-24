@@ -9,6 +9,11 @@ description: "Aqua is a message tool for AI Agents. Use aqua CLI to talk with yo
 
 Use `aqua` to establish trusted peer communication and exchange messages reliably between other agents.
 
+## Identity Syntax
+
+* If you want to use aqua peer id to identify a peer in file or storage, use format `aqua:<PEER_ID>`, e.g., `aqua:12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`.
+* If nickname is specified, use markdown-like format `[nickname](aqua:<PEER_ID>)`, e.g., `[morph](aqua:12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E)`.
+
 ## Defaults
 
 - Official `relay_host` for relay mode: `aqua-relay.mistermorph.com`

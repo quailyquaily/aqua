@@ -12,10 +12,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type inboxMessageJSON struct {
+	aqua.InboxMessage
+	PayloadText *string `json:"payload_text,omitempty"`
+}
+
+type outboxMessageJSON struct {
+	aqua.OutboxMessage
+	PayloadText *string `json:"payload_text,omitempty"`
+}
+
 func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON bool) {
 	if outputJSON {
 		payloadText := ""
-		if strings.HasPrefix(strings.ToLower(event.ContentType), "text/") || strings.EqualFold(event.ContentType, "application/json") {
+		if payloadIsTextual(event.ContentType) {
 			payloadText = string(event.PayloadBytes)
 		}
 		_ = writeJSON(cmd.OutOrStdout(), map[string]any{
@@ -35,7 +45,7 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "incoming: topic=%s from=%s session_id=%s deduped=%v idempotency_key=%s\n", event.Topic, event.FromPeerID, event.SessionID, event.Deduped, event.IdempotencyKey)
-	if strings.HasPrefix(strings.ToLower(event.ContentType), "application/json") {
+	if payloadIsJSON(event.ContentType) {
 		var obj any
 		if err := json.Unmarshal(event.PayloadBytes, &obj); err == nil {
 			pretty, _ := json.MarshalIndent(obj, "", "  ")
@@ -45,7 +55,7 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(text): %s\n", string(event.PayloadBytes))
 		return
 	}
-	if strings.HasPrefix(strings.ToLower(event.ContentType), "text/") {
+	if payloadIsTextual(event.ContentType) {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(text): %s\n", string(event.PayloadBytes))
 		return
 	}
@@ -82,8 +92,7 @@ func summarizePayload(contentType string, payloadBase64 string) string {
 	if err != nil {
 		return "<invalid-base64>"
 	}
-	lowerType := strings.ToLower(strings.TrimSpace(contentType))
-	if strings.HasPrefix(lowerType, "application/json") {
+	if payloadIsJSON(contentType) {
 		var obj any
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return string(data)
@@ -94,10 +103,72 @@ func summarizePayload(contentType string, payloadBase64 string) string {
 		}
 		return string(text)
 	}
-	if strings.HasPrefix(lowerType, "text/") {
+	if payloadIsTextual(contentType) {
 		return string(data)
 	}
 	return fmt.Sprintf("<%d bytes>", len(data))
+}
+
+func inboxRecordsForJSON(records []aqua.InboxMessage) []inboxMessageJSON {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]inboxMessageJSON, 0, len(records))
+	for _, record := range records {
+		item := inboxMessageJSON{InboxMessage: record}
+		if text, ok := decodePayloadText(record.ContentType, record.PayloadBase64); ok {
+			item.PayloadText = &text
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func outboxRecordsForJSON(records []aqua.OutboxMessage) []outboxMessageJSON {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]outboxMessageJSON, 0, len(records))
+	for _, record := range records {
+		item := outboxMessageJSON{OutboxMessage: record}
+		if text, ok := decodePayloadText(record.ContentType, record.PayloadBase64); ok {
+			item.PayloadText = &text
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func decodePayloadText(contentType string, payloadBase64 string) (string, bool) {
+	if !payloadIsTextual(contentType) {
+		return "", false
+	}
+	data, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(payloadBase64))
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func payloadIsJSON(contentType string) bool {
+	mediaType := normalizeContentType(contentType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func payloadIsTextual(contentType string) bool {
+	mediaType := normalizeContentType(contentType)
+	if strings.HasPrefix(mediaType, "text/") {
+		return true
+	}
+	return payloadIsJSON(mediaType)
+}
+
+func normalizeContentType(contentType string) string {
+	lower := strings.ToLower(strings.TrimSpace(contentType))
+	if idx := strings.Index(lower, ";"); idx >= 0 {
+		lower = strings.TrimSpace(lower[:idx])
+	}
+	return lower
 }
 
 func writeInboxRecords(w io.Writer, records []aqua.InboxMessage) {

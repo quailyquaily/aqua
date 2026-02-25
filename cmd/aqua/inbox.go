@@ -49,7 +49,7 @@ func newInboxListCmd() *cobra.Command {
 				}
 			}
 			if outputJSON {
-				return writeJSON(cmd.OutOrStdout(), records)
+				return writeJSON(cmd.OutOrStdout(), inboxRecordsForJSON(records))
 			}
 			if len(records) == 0 {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no inbox messages")

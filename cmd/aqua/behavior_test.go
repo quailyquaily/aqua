@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -152,6 +153,90 @@ func TestInboxListUnreadAutoMarksRead(t *testing.T) {
 	}
 	if len(records2) != 0 {
 		t.Fatalf("second unread list should be empty, got %d", len(records2))
+	}
+}
+
+func TestInboxListJSONIncludesPayloadTextForTextContent(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	store := aqua.NewFileStore(dir)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	payloadText := "hello inbox"
+	if err := store.AppendInboxMessage(ctx, aqua.InboxMessage{
+		MessageID:      "msg-text-1",
+		FromPeerID:     "12D3KooWpeerText",
+		Topic:          "chat.message",
+		ContentType:    "text/plain; charset=utf-8",
+		PayloadBase64:  base64.RawURLEncoding.EncodeToString([]byte(payloadText)),
+		IdempotencyKey: "idem-text-1",
+		SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456",
+		ReceivedAt:     time.Date(2026, 2, 22, 15, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("AppendInboxMessage(text) error = %v", err)
+	}
+
+	stdout, stderr, err := executeCLI(t, "--dir", dir, "inbox", "list", "--json")
+	if err != nil {
+		t.Fatalf("inbox list --json error = %v, stderr=%s", err, stderr)
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("decode inbox list json error = %v, stdout=%s", err, stdout)
+	}
+	if len(records) != 1 {
+		t.Fatalf("inbox list length mismatch: got %d want 1", len(records))
+	}
+	if got, _ := records[0]["payload_text"].(string); got != payloadText {
+		t.Fatalf("payload_text mismatch: got %q want %q", got, payloadText)
+	}
+	if got, _ := records[0]["payload_base64"].(string); got == "" {
+		t.Fatalf("payload_base64 should remain present")
+	}
+}
+
+func TestOutboxListJSONIncludesPayloadTextForJSONContent(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	store := aqua.NewFileStore(dir)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	payloadText := `{"kind":"note","body":"hello"}`
+	if err := store.AppendOutboxMessage(ctx, aqua.OutboxMessage{
+		MessageID:      "msg-out-text-1",
+		ToPeerID:       "12D3KooWpeerOutbox",
+		Topic:          "chat.message",
+		ContentType:    "application/ld+json; profile=test",
+		PayloadBase64:  base64.RawURLEncoding.EncodeToString([]byte(payloadText)),
+		IdempotencyKey: "idem-out-text-1",
+		SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456",
+		SentAt:         time.Date(2026, 2, 22, 16, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("AppendOutboxMessage(textual json) error = %v", err)
+	}
+
+	stdout, stderr, err := executeCLI(t, "--dir", dir, "outbox", "list", "--json")
+	if err != nil {
+		t.Fatalf("outbox list --json error = %v, stderr=%s", err, stderr)
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("decode outbox list json error = %v, stdout=%s", err, stdout)
+	}
+	if len(records) != 1 {
+		t.Fatalf("outbox list length mismatch: got %d want 1", len(records))
+	}
+	if got, _ := records[0]["payload_text"].(string); got != payloadText {
+		t.Fatalf("payload_text mismatch: got %q want %q", got, payloadText)
+	}
+	if got, _ := records[0]["payload_base64"].(string); got == "" {
+		t.Fatalf("payload_base64 should remain present")
 	}
 }
 

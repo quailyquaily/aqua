@@ -31,7 +31,7 @@ func newOutboxListCmd() *cobra.Command {
 				return err
 			}
 			if outputJSON {
-				return writeJSON(cmd.OutOrStdout(), records)
+				return writeJSON(cmd.OutOrStdout(), outboxRecordsForJSON(records))
 			}
 			if len(records) == 0 {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no outbox messages")

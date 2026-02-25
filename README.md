@@ -109,3 +109,9 @@ go build -o ./bin/aqua ./cmd/aqua
 - `docs/architecture.md`
 - `docs/cli.md`
 - `docs/relay.md`
+
+## Star History
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=quailyquaily/aqua&type=date&legend=top-left)](https://www.star-history.com/#quailyquaily/aqua&type=date&legend=top-left)

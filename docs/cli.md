@@ -375,19 +375,46 @@ Behavior notes:
 Usage:
 
 ```bash
-aqua relay serve [--listen <multiaddr> ...] [--allow-peer <peer_id> ...] [--json]
+aqua relay serve [--listen <multiaddr> ...] [--allow-peer <peer_id> ...] [--observe-listen <host:port>] [--admin-sock <path>] [--json]
 ```
 
 Flags:
 
 - `--listen` (repeatable): relay service listen addresses. Defaults `/ip4/0.0.0.0/tcp/6372` and `/ip4/0.0.0.0/udp/6372/quic-v1`.
 - `--allow-peer` (repeatable): peer allowlist. Default empty means allow all peers.
+- `--observe-listen`: observe HTTP bind address for `/_hc` and `/status`. Default `127.0.0.1:9632`. Set empty value to disable.
+- `--admin-sock`: admin unix socket path for `/peers`. Default `<AQUA_DIR>/relay-admin.sock`.
+- `--http-listen`: deprecated alias for `--observe-listen`.
 - `--json`: print ready output as JSON.
 
 Behavior notes:
 
 - Uses libp2p Circuit Relay v2 service mode.
 - When allowlist is set, both source and destination peers must be allowlisted for relayed connect.
+- Observe endpoints are exposed when `--observe-listen` is enabled:
+  - `GET /_hc`: process health + version info.
+  - `GET /status`: uptime, reservation/renewal counters, relay limits, and 6h/10m reservation peaks.
+- Admin endpoint is exposed on unix socket (`--admin-sock`):
+  - `GET /peers`: currently connected peers with active reservations, including `peer_id` and optional `expires_at`.
+
+#### `aqua relay peers`
+
+Usage:
+
+```bash
+aqua relay peers [--admin-sock <path>] [--timeout <duration>] [--json]
+```
+
+Flags:
+
+- `--admin-sock`: relay admin unix socket path. Default `<AQUA_DIR>/relay-admin.sock`.
+- `--timeout`: request timeout. Default `3s`.
+- `--json`: print as JSON.
+
+Behavior notes:
+
+- Calls `GET /peers` on relay admin unix socket.
+- Output includes connected peer IDs, `expires_at`, and CLI-derived relative fields (`expires_in`, `expires_in_sec`) when available.
 
 ### Dialing Commands
 

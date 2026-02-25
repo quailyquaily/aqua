@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -25,6 +26,7 @@ func newRelayCmd() *cobra.Command {
 		Short: "Run Aqua relay services",
 	}
 	cmd.AddCommand(newRelayServeCmd())
+	cmd.AddCommand(newRelayPeersCmd())
 	return cmd
 }
 
@@ -34,6 +36,8 @@ func newRelayServeCmd() *cobra.Command {
 	var outputJSON bool
 	var maxReservations int
 	var maxReservationsPerIP int
+	var observeListen string
+	var adminSock string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -75,8 +79,23 @@ func newRelayServeCmd() *cobra.Command {
 				"allowlist_count", len(allowedPeers),
 				"max_reservations", resources.MaxReservations,
 				"max_reservations_per_ip", resources.MaxReservationsPerIP,
+				"observe_listen", strings.TrimSpace(observeListen),
+				"admin_sock", strings.TrimSpace(adminSock),
 			)
-			acl := relayAllowlistACL{allowed: allowedPeers, logger: logger}
+			resolvedAdminSock, err := resolveRelayAdminSocketPath(cmd, adminSock)
+			if err != nil {
+				return err
+			}
+			startedAt := time.Now().UTC()
+			statusTracker := newRelayStatusTracker(startedAt)
+			startRelayStatusSampling(runCtx, statusTracker)
+			statusMetricsTracer := &relayStatusMetricsTracer{tracker: statusTracker}
+			acl := relayAllowlistACL{
+				allowed:        allowedPeers,
+				logger:         logger,
+				statusTracker:  statusTracker,
+				reservationTTL: resources.ReservationTTL,
+			}
 			h, err := libp2p.New(
 				libp2p.Identity(priv),
 				libp2p.ListenAddrStrings(resolvedListenAddrs...),
@@ -86,6 +105,7 @@ func newRelayServeCmd() *cobra.Command {
 				libp2p.EnableRelayService(
 					relayv2.WithACL(acl),
 					relayv2.WithResources(resources),
+					relayv2.WithMetricsTracer(statusMetricsTracer),
 				),
 			)
 			if err != nil {
@@ -93,6 +113,37 @@ func newRelayServeCmd() *cobra.Command {
 			}
 			defer h.Close()
 			logger.Info("relay service started", "peer_id", h.ID().String(), "allow_all", len(allowedPeers) == 0)
+			peerViewsFn := func(now time.Time) []relayPeerView {
+				return statusTracker.connectedPeerViews(now, h.Network().Peers(), h.ConnManager())
+			}
+			resolvedObserveListen, shutdownObserveHTTP, err := startRelayObserveHTTPServer(observeListen, logger, statusTracker, resources)
+			if err != nil {
+				return err
+			}
+			if shutdownObserveHTTP != nil {
+				defer func() {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := shutdownObserveHTTP(shutdownCtx); err != nil {
+						logger.Warn("shutdown relay observe server", "error", err)
+					}
+				}()
+				logger.Info("relay observe server started", "listen", resolvedObserveListen)
+			}
+			resolvedAdminSockOut, shutdownAdminHTTP, err := startRelayAdminHTTPServer(resolvedAdminSock, logger, peerViewsFn)
+			if err != nil {
+				return err
+			}
+			if shutdownAdminHTTP != nil {
+				defer func() {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := shutdownAdminHTTP(shutdownCtx); err != nil {
+						logger.Warn("shutdown relay admin server", "error", err)
+					}
+				}()
+				logger.Info("relay admin server started", "socket", resolvedAdminSockOut)
+			}
 
 			addresses, err := hostP2PAddrStrings(h.Addrs(), h.ID())
 			if err != nil {
@@ -102,7 +153,7 @@ func newRelayServeCmd() *cobra.Command {
 			allowlistOut := sortedAllowlistStrings(allowedPeers)
 
 			if outputJSON {
-				_ = writeJSON(cmd.OutOrStdout(), map[string]any{
+				readyView := map[string]any{
 					"status":     "ready",
 					"peer_id":    h.ID().String(),
 					"node_uuid":  identity.NodeUUID,
@@ -116,9 +167,16 @@ func newRelayServeCmd() *cobra.Command {
 						"max_reservations":        resources.MaxReservations,
 						"max_reservations_per_ip": resources.MaxReservationsPerIP,
 					},
-					"started_at":  time.Now().UTC(),
+					"started_at":  startedAt,
 					"protocol_id": "libp2p.relay/v2",
-				})
+				}
+				if resolvedObserveListen != "" {
+					readyView["observe_listen"] = resolvedObserveListen
+				}
+				if resolvedAdminSockOut != "" {
+					readyView["admin_sock"] = resolvedAdminSockOut
+				}
+				_ = writeJSON(cmd.OutOrStdout(), readyView)
 			} else {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nservice: relay\nnode_uuid: %s\npeer_id: %s\n", identity.NodeUUID, h.ID().String())
 				if len(allowlistOut) == 0 {
@@ -133,6 +191,12 @@ func newRelayServeCmd() *cobra.Command {
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "max_reservations: %d\n", resources.MaxReservations)
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "max_reservations_per_ip: %d\n", resources.MaxReservationsPerIP)
+				if resolvedObserveListen != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "observe_listen: %s\n", resolvedObserveListen)
+				}
+				if resolvedAdminSockOut != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "admin_sock: %s\n", resolvedAdminSockOut)
+				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "waiting for relay traffic... (Ctrl+C to stop)")
 			}
 
@@ -145,8 +209,33 @@ func newRelayServeCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&allowlist, "allow-peer", nil, "Allowlist peer id (repeatable, default empty means allow all peers)")
 	cmd.Flags().IntVar(&maxReservations, "max-reservations", 512, "Maximum number of active relay reservations")
 	cmd.Flags().IntVar(&maxReservationsPerIP, "max-reservations-per-ip", 4, "Maximum number of relay reservations per source IP")
+	cmd.Flags().StringVar(&observeListen, "observe-listen", relayObserveHTTPListenDefault, "Relay observe HTTP listen address for /_hc and /status (empty to disable)")
+	cmd.Flags().StringVar(&observeListen, "http-listen", relayObserveHTTPListenDefault, "Deprecated: use --observe-listen")
+	_ = cmd.Flags().MarkDeprecated("http-listen", "use --observe-listen")
+	cmd.Flags().StringVar(&adminSock, "admin-sock", "", "Relay admin unix socket path for /peers (default: <AQUA_DIR>/relay-admin.sock)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status as JSON")
 	return cmd
+}
+
+func resolveRelayAdminSocketPath(cmd *cobra.Command, raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		dir := ""
+		if cmd != nil {
+			dir, _ = cmd.Flags().GetString("dir")
+		}
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			dir = defaultAquaDir()
+		}
+		path = filepath.Join(expandHomePath(dir), relayAdminSocketBaseName)
+	} else {
+		path = expandHomePath(path)
+	}
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("empty relay admin socket path")
+	}
+	return path, nil
 }
 
 func resolveRelayResources(maxReservations int, maxReservationsPerIP int) (relayv2.Resources, error) {
@@ -170,8 +259,10 @@ func resolveRelayResources(maxReservations int, maxReservationsPerIP int) (relay
 }
 
 type relayAllowlistACL struct {
-	allowed map[peer.ID]bool
-	logger  *slog.Logger
+	allowed        map[peer.ID]bool
+	logger         *slog.Logger
+	statusTracker  *relayStatusTracker
+	reservationTTL time.Duration
 }
 
 func (a relayAllowlistACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
@@ -189,6 +280,9 @@ func (a relayAllowlistACL) AllowReserve(p peer.ID, addr ma.Multiaddr) bool {
 			"source_addr", relayMultiaddrString(addr),
 			"allowed", allowed,
 		)
+	}
+	if allowed && a.statusTracker != nil {
+		a.statusTracker.recordPeerLeaseSeen(p.String(), time.Now().UTC(), a.reservationTTL)
 	}
 	return allowed
 }

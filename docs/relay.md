@@ -40,6 +40,23 @@ Allowlist behavior:
 - empty allowlist (default): allow all peers
 - non-empty allowlist: only listed peers can reserve
 - relayed connect requires both source and destination peers to be allowlisted
+- by default, observe HTTP server listens on `127.0.0.1:9632` (override with `--observe-listen`, set empty to disable)
+- by default, admin HTTP server listens on unix socket `<AQUA_DIR>/relay-admin.sock` (override with `--admin-sock`)
+
+Observe endpoints (`--observe-listen`):
+
+- `GET /_hc`: returns relay process health and build metadata (`version`, `commit`, `date`)
+- `GET /status`: returns `uptime_sec`, relay limits (`max_reservations`, `max_reservations_per_ip`), reservation lifecycle (`opened_total`, `renewed_total`, `closed_total`, `active_reservations`, `last_renewed_at`), and `peaks_10m_last_6h`
+
+Admin endpoint (`--admin-sock`):
+
+- `GET /peers`: returns currently connected peer IDs with active reservations only (`peer_id`, optional `expires_at`)
+
+Peer lease inspection from CLI:
+
+```bash
+aqua relay peers --admin-sock <AQUA_DIR>/relay-admin.sock
+```
 
 ### 2.2 Edge node
 

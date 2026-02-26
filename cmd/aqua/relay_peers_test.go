@@ -113,6 +113,8 @@ func TestRelayPeersCommandText(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, relayAdminSocketBaseName)
 	now := time.Date(2026, 2, 25, 10, 0, 0, 0, time.UTC)
+	expiresSoon := now.Add(5 * time.Minute)
+	expiresLater := now.Add(10 * time.Minute)
 
 	shutdown := startRelayPeersUnixServer(t, sock, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/peers" {
@@ -123,7 +125,15 @@ func TestRelayPeersCommandText(t *testing.T) {
 			Now: now,
 			Peers: []relayPeerView{
 				{
-					PeerID: "12D3KooWExamplePeerB",
+					PeerID: "12D3KooWExamplePeerZ",
+				},
+				{
+					PeerID:    "12D3KooWExamplePeerB",
+					ExpiresAt: &expiresLater,
+				},
+				{
+					PeerID:    "12D3KooWExamplePeerA",
+					ExpiresAt: &expiresSoon,
 				},
 			},
 		})
@@ -134,14 +144,28 @@ func TestRelayPeersCommandText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relay peers text error = %v, stderr=%s", err, stderr)
 	}
-	if !strings.Contains(stdout, "peer_id: 12D3KooWExamplePeerB") {
-		t.Fatalf("expected peer_id in output, got: %s", stdout)
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("expected table output with header and rows, got: %s", stdout)
 	}
-	if strings.Contains(stdout, "lease_status:") {
-		t.Fatalf("did not expect lease_status in output, got: %s", stdout)
+	if got := strings.Fields(lines[0]); len(got) != 3 || got[0] != "peer_id" || got[1] != "expires_at" || got[2] != "expires_in" {
+		t.Fatalf("unexpected table header %q", lines[0])
 	}
-	if strings.Contains(stdout, "status:") {
-		t.Fatalf("did not expect status in output, got: %s", stdout)
+
+	idxA := strings.Index(stdout, "12D3KooWExamplePeerA")
+	idxB := strings.Index(stdout, "12D3KooWExamplePeerB")
+	idxZ := strings.Index(stdout, "12D3KooWExamplePeerZ")
+	if idxA == -1 || idxB == -1 || idxZ == -1 {
+		t.Fatalf("missing peer rows in output: %s", stdout)
+	}
+	if !(idxA < idxB && idxB < idxZ) {
+		t.Fatalf("unexpected peer row order, want A (soon) then B (later) then Z (no expiry): %s", stdout)
+	}
+	if !strings.Contains(stdout, "2026-02-25T10:05:00Z") || !strings.Contains(stdout, "2026-02-25T10:10:00Z") {
+		t.Fatalf("expected RFC3339 expires_at values in output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "5m") || !strings.Contains(stdout, "10m") {
+		t.Fatalf("expected expires_in values in output, got: %s", stdout)
 	}
 }
 

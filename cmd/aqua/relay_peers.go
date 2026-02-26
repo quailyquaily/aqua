@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -89,21 +90,38 @@ func fetchRelayPeersFromUnixSocket(ctx context.Context, socketPath string, timeo
 }
 
 func writeRelayPeersText(w io.Writer, view relayPeersView) {
-	_, _ = fmt.Fprintf(w, "now: %s\n", view.Now.UTC().Format(time.RFC3339))
-	_, _ = fmt.Fprintf(w, "peer_count: %d\n", len(view.Peers))
-	for _, item := range view.Peers {
-		_, _ = fmt.Fprintln(w, "---")
-		_, _ = fmt.Fprintf(w, "peer_id: %s\n", item.PeerID)
-		if item.ExpiresAt != nil {
-			_, _ = fmt.Fprintf(w, "expires_at: %s\n", item.ExpiresAt.UTC().Format(time.RFC3339))
+	peers := append([]relayPeerCommandView(nil), view.Peers...)
+	sort.SliceStable(peers, func(i, j int) bool {
+		leftHasExpires := peers[i].ExpiresAt != nil && !peers[i].ExpiresAt.IsZero()
+		rightHasExpires := peers[j].ExpiresAt != nil && !peers[j].ExpiresAt.IsZero()
+		if leftHasExpires && rightHasExpires {
+			left := canonicalRelayStatusTime(*peers[i].ExpiresAt)
+			right := canonicalRelayStatusTime(*peers[j].ExpiresAt)
+			if !left.Equal(right) {
+				return left.Before(right)
+			}
+			return peers[i].PeerID < peers[j].PeerID
 		}
-		if item.ExpiresInSec != nil {
-			_, _ = fmt.Fprintf(w, "expires_in_sec: %d\n", *item.ExpiresInSec)
+		if leftHasExpires != rightHasExpires {
+			return leftHasExpires
 		}
-		if strings.TrimSpace(item.ExpiresIn) != "" {
-			_, _ = fmt.Fprintf(w, "expires_in: %s\n", item.ExpiresIn)
+		return peers[i].PeerID < peers[j].PeerID
+	})
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "peer_id\texpires_at\texpires_in")
+	for _, item := range peers {
+		expiresAt := "-"
+		if item.ExpiresAt != nil && !item.ExpiresAt.IsZero() {
+			expiresAt = canonicalRelayStatusTime(*item.ExpiresAt).Format(time.RFC3339)
 		}
+		expiresIn := strings.TrimSpace(item.ExpiresIn)
+		if expiresIn == "" {
+			expiresIn = "-"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", item.PeerID, expiresAt, expiresIn)
 	}
+	_ = tw.Flush()
 }
 
 type relayPeersView struct {

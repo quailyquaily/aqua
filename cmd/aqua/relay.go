@@ -86,9 +86,17 @@ func newRelayServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resolvedStatusPeaksPath, err := resolveRelayStatusPeaksPath(cmd)
+			if err != nil {
+				return err
+			}
 			startedAt := time.Now().UTC()
 			statusTracker := newRelayStatusTracker(startedAt)
+			if err := loadRelayStatusPeaks(resolvedStatusPeaksPath, statusTracker, startedAt); err != nil {
+				logger.Warn("load relay status peaks", "path", resolvedStatusPeaksPath, "error", err)
+			}
 			startRelayStatusSampling(runCtx, statusTracker)
+			startRelayStatusPeaksPersistence(runCtx, logger, statusTracker, resolvedStatusPeaksPath, nil)
 			statusMetricsTracer := &relayStatusMetricsTracer{tracker: statusTracker}
 			acl := relayAllowlistACL{
 				allowed:        allowedPeers,
@@ -234,6 +242,22 @@ func resolveRelayAdminSocketPath(cmd *cobra.Command, raw string) (string, error)
 	}
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("empty relay admin socket path")
+	}
+	return path, nil
+}
+
+func resolveRelayStatusPeaksPath(cmd *cobra.Command) (string, error) {
+	dir := ""
+	if cmd != nil {
+		dir, _ = cmd.Flags().GetString("dir")
+	}
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = defaultAquaDir()
+	}
+	path := filepath.Join(expandHomePath(dir), relayStatusPeaksFileBaseName)
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("empty relay status peaks file path")
 	}
 	return path, nil
 }

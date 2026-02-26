@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/quailyquaily/aqua/aqua"
+	"github.com/quailyquaily/aqua/internal/fsstore"
 )
 
 func TestRelayStatusTrackerReservationLifecycle(t *testing.T) {
@@ -71,6 +73,91 @@ func TestRelayStatusTrackerPeaks(t *testing.T) {
 	}
 	if got := peaksByWindowStart[startedAt.Add(20*time.Minute)]; got != 1 {
 		t.Fatalf("peak(%s) = %d, want 1", startedAt.Add(20*time.Minute).Format(time.RFC3339), got)
+	}
+}
+
+func TestRelayStatusPeaksFileRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, relayStatusPeaksFileBaseName)
+	startedAt := time.Date(2026, 2, 25, 0, 0, 0, 0, time.UTC)
+	now := startedAt.Add(90 * time.Minute)
+
+	source := newRelayStatusTracker(startedAt)
+	source.recordReservationAllowed(false, startedAt.Add(1*time.Minute))
+	source.recordReservationAllowed(false, startedAt.Add(4*time.Minute))
+	source.recordReservationClosed(1, startedAt.Add(12*time.Minute))
+
+	if err := saveRelayStatusPeaks(path, source, now); err != nil {
+		t.Fatalf("saveRelayStatusPeaks() error = %v", err)
+	}
+
+	target := newRelayStatusTracker(startedAt.Add(2 * time.Hour))
+	if err := loadRelayStatusPeaks(path, target, now); err != nil {
+		t.Fatalf("loadRelayStatusPeaks() error = %v", err)
+	}
+
+	snapshot := target.snapshot(now)
+	peaksByWindowStart := map[time.Time]int{}
+	for _, item := range snapshot.Peaks10mLast6h {
+		peaksByWindowStart[item.WindowStart] = item.PeakReservations
+	}
+	if got := peaksByWindowStart[startedAt]; got != 2 {
+		t.Fatalf("peak(%s) = %d, want 2", startedAt.Format(time.RFC3339), got)
+	}
+	if got := peaksByWindowStart[startedAt.Add(10*time.Minute)]; got != 1 {
+		t.Fatalf("peak(%s) = %d, want 1", startedAt.Add(10*time.Minute).Format(time.RFC3339), got)
+	}
+}
+
+func TestRelayStatusPeaksFileLoadPrunesOlderThan6Hours(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, relayStatusPeaksFileBaseName)
+	now := time.Date(2026, 2, 25, 12, 0, 0, 0, time.UTC)
+	validWindowStart := relayStatusBucketStart(now.Add(-40 * time.Minute))
+
+	payload := relayStatusPeaksFile{
+		UpdatedAt: now.Add(-time.Minute),
+		Peaks: []relayStatusPeakFileRow{
+			{
+				WindowStart:      relayStatusBucketStart(now.Add(-8 * time.Hour)),
+				PeakReservations: 9,
+			},
+			{
+				WindowStart:      validWindowStart,
+				PeakReservations: 3,
+			},
+		},
+	}
+	if err := fsstore.WriteJSONAtomic(path, payload, fsstore.FileOptions{}); err != nil {
+		t.Fatalf("WriteJSONAtomic() error = %v", err)
+	}
+
+	tracker := newRelayStatusTracker(now.Add(-time.Hour))
+	if err := loadRelayStatusPeaks(path, tracker, now); err != nil {
+		t.Fatalf("loadRelayStatusPeaks() error = %v", err)
+	}
+
+	snapshot := tracker.snapshot(now)
+	nonZero := 0
+	for _, item := range snapshot.Peaks10mLast6h {
+		if item.PeakReservations > 0 {
+			nonZero++
+		}
+	}
+	if nonZero != 1 {
+		t.Fatalf("nonZero peak windows = %d, want 1", nonZero)
+	}
+
+	peaksByWindowStart := map[time.Time]int{}
+	for _, item := range snapshot.Peaks10mLast6h {
+		peaksByWindowStart[item.WindowStart] = item.PeakReservations
+	}
+	if got := peaksByWindowStart[validWindowStart]; got != 3 {
+		t.Fatalf("peak(%s) = %d, want 3", validWindowStart.Format(time.RFC3339), got)
 	}
 }
 

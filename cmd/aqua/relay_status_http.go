@@ -18,6 +18,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	pbv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/pb"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	"github.com/quailyquaily/aqua/internal/fsstore"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 
 	relayObserveHTTPListenDefault = "127.0.0.1:9632"
 	relayAdminSocketBaseName      = "relay-admin.sock"
+	relayStatusPeaksFileBaseName  = "relay-status-peaks.json"
 )
 
 type relayStatusMetricsTracer struct {
@@ -129,6 +131,16 @@ type relayPeersAPIView struct {
 	Peers []relayPeerView `json:"peers"`
 }
 
+type relayStatusPeaksFile struct {
+	UpdatedAt time.Time                `json:"updated_at"`
+	Peaks     []relayStatusPeakFileRow `json:"peaks"`
+}
+
+type relayStatusPeakFileRow struct {
+	WindowStart      time.Time `json:"window_start"`
+	PeakReservations int       `json:"peak_reservations"`
+}
+
 func newRelayStatusTracker(startedAt time.Time) *relayStatusTracker {
 	startedAt = canonicalRelayStatusTime(startedAt)
 	if startedAt.IsZero() {
@@ -190,6 +202,101 @@ func (t *relayStatusTracker) sample(now time.Time) {
 	defer t.mu.Unlock()
 	t.observeActiveLocked(now)
 	t.prunePeaksLocked(now)
+}
+
+func (t *relayStatusTracker) importPeakRows(now time.Time, rows []relayStatusPeakFileRow) {
+	if t == nil || len(rows) == 0 {
+		return
+	}
+
+	now = canonicalRelayStatusTime(now)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, row := range rows {
+		windowStart := relayStatusBucketStart(row.WindowStart)
+		if windowStart.IsZero() {
+			continue
+		}
+		peak := row.PeakReservations
+		if peak < 0 {
+			peak = 0
+		}
+		if current, ok := t.peakByBucket[windowStart]; !ok || peak > current {
+			t.peakByBucket[windowStart] = peak
+		}
+	}
+	t.prunePeaksLocked(now)
+}
+
+func (t *relayStatusTracker) exportPeakRows(now time.Time) []relayStatusPeakFileRow {
+	now = canonicalRelayStatusTime(now)
+	if t == nil {
+		return nil
+	}
+
+	latestStart := relayStatusBucketStart(now)
+	oldestStart := latestStart.Add(-time.Duration(relayStatusPeakBucketCount-1) * relayStatusPeakWindow)
+
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	rows := make([]relayStatusPeakFileRow, 0, len(t.peakByBucket))
+	for windowStart, peak := range t.peakByBucket {
+		if windowStart.Before(oldestStart) || windowStart.After(latestStart) {
+			continue
+		}
+		if peak < 0 {
+			peak = 0
+		}
+		rows = append(rows, relayStatusPeakFileRow{
+			WindowStart:      windowStart,
+			PeakReservations: peak,
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].WindowStart.Before(rows[j].WindowStart)
+	})
+	return rows
+}
+
+func loadRelayStatusPeaks(path string, tracker *relayStatusTracker, now time.Time) error {
+	if tracker == nil {
+		return nil
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("empty relay status peaks file path")
+	}
+	var file relayStatusPeaksFile
+	exists, err := fsstore.ReadJSON(path, &file)
+	if err != nil {
+		return fmt.Errorf("read relay status peaks %s: %w", path, err)
+	}
+	if !exists {
+		return nil
+	}
+	tracker.importPeakRows(now, file.Peaks)
+	return nil
+}
+
+func saveRelayStatusPeaks(path string, tracker *relayStatusTracker, now time.Time) error {
+	if tracker == nil {
+		return nil
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("empty relay status peaks file path")
+	}
+	now = canonicalRelayStatusTime(now)
+	payload := relayStatusPeaksFile{
+		UpdatedAt: now,
+		Peaks:     tracker.exportPeakRows(now),
+	}
+	if err := fsstore.WriteJSONAtomic(path, payload, fsstore.FileOptions{}); err != nil {
+		return fmt.Errorf("write relay status peaks %s: %w", path, err)
+	}
+	return nil
 }
 
 func (t *relayStatusTracker) snapshot(now time.Time) relayStatusSnapshot {
@@ -358,6 +465,46 @@ func startRelayStatusSampling(ctx context.Context, tracker *relayStatusTracker) 
 			case tickAt := <-ticker.C:
 				tracker.sample(tickAt)
 			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func startRelayStatusPeaksPersistence(
+	ctx context.Context,
+	logger *slog.Logger,
+	tracker *relayStatusTracker,
+	path string,
+	nowFn func() time.Time,
+) {
+	if ctx == nil || tracker == nil {
+		return
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	if nowFn == nil {
+		nowFn = func() time.Time { return time.Now().UTC() }
+	}
+
+	writePeaks := func(at time.Time) {
+		if err := saveRelayStatusPeaks(path, tracker, at); err != nil && logger != nil {
+			logger.Warn("persist relay status peaks", "path", path, "error", err)
+		}
+	}
+
+	writePeaks(nowFn())
+	go func() {
+		ticker := time.NewTicker(relayStatusSamplingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case tickAt := <-ticker.C:
+				writePeaks(tickAt)
+			case <-ctx.Done():
+				writePeaks(nowFn())
 				return
 			}
 		}

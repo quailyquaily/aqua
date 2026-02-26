@@ -42,6 +42,25 @@ func TestResolveRelayAdminSocketPath(t *testing.T) {
 	}
 }
 
+func TestResolveRelayStatusPeaksPath(t *testing.T) {
+	t.Parallel()
+
+	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().String("dir", "", "state dir")
+	if err := cmd.Flags().Set("dir", "/tmp/aqua-test"); err != nil {
+		t.Fatalf("set dir flag: %v", err)
+	}
+
+	got, err := resolveRelayStatusPeaksPath(cmd)
+	if err != nil {
+		t.Fatalf("resolveRelayStatusPeaksPath() error = %v", err)
+	}
+	want := filepath.Join("/tmp/aqua-test", relayStatusPeaksFileBaseName)
+	if got != want {
+		t.Fatalf("status peaks path = %q, want %q", got, want)
+	}
+}
+
 func TestRelayPeersCommandJSON(t *testing.T) {
 	t.Parallel()
 

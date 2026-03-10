@@ -19,6 +19,7 @@ func newGroupCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newGroupCreateCmd())
 	cmd.AddCommand(newGroupInviteCmd())
+	cmd.AddCommand(newGroupInvitesCmd())
 	cmd.AddCommand(newGroupRemoveMemberCmd())
 	cmd.AddCommand(newGroupRoleCmd())
 	cmd.AddCommand(newGroupListCmd())
@@ -51,15 +52,26 @@ func newGroupCreateCmd() *cobra.Command {
 
 func newGroupInviteCmd() *cobra.Command {
 	var outputJSON bool
+	var relayMode string
+	var localOnly bool
 	cmd := &cobra.Command{
 		Use:   "invite <group_id> <peer_id>",
-		Short: "Create an invite for a peer",
+		Short: "Create and send an invite to a peer",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
 			invite, err := svc.InviteGroupMember(cmd.Context(), args[0], args[1], time.Now().UTC())
 			if err != nil {
 				return err
+			}
+			if !localOnly {
+				payloadRaw, err := aqua.EncodeGroupInviteControlMessage(invite)
+				if err != nil {
+					return err
+				}
+				if err := sendGroupControlToPeer(cmd, relayMode, invite.InviteePeerID, payloadRaw, groupInviteControlIdempotencyKey(invite)); err != nil {
+					return fmt.Errorf("invite %s stored locally but delivery failed: %w", invite.InviteID, err)
+				}
 			}
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), invite)
@@ -77,6 +89,8 @@ func newGroupInviteCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
+	cmd.Flags().BoolVar(&localOnly, "local-only", false, "Only mutate local state and skip network delivery")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	cmd.AddCommand(newGroupInviteAcceptCmd())
 	cmd.AddCommand(newGroupInviteRejectCmd())
@@ -85,15 +99,33 @@ func newGroupInviteCmd() *cobra.Command {
 
 func newGroupInviteAcceptCmd() *cobra.Command {
 	var outputJSON bool
+	var relayMode string
+	var localOnly bool
 	cmd := &cobra.Command{
-		Use:   "accept <group_id> <invite_id>",
-		Short: "Accept an invite and activate membership locally",
-		Args:  cobra.ExactArgs(2),
+		Use:   "accept <group_id> [invite_id]",
+		Short: "Accept an invite and notify the inviter",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			invite, group, err := svc.AcceptGroupInvite(cmd.Context(), args[0], args[1], time.Now().UTC())
+			inviteID, err := resolveGroupInviteDecisionID(cmd, svc, args[0], args[1:])
 			if err != nil {
 				return err
+			}
+			invite, group, err := svc.AcceptGroupInvite(cmd.Context(), args[0], inviteID, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if !localOnly {
+				if strings.TrimSpace(invite.InviterPeerID) == "" {
+					return fmt.Errorf("invite %s is missing inviter_peer_id", invite.InviteID)
+				}
+				payloadRaw, err := aqua.EncodeGroupInviteDecisionMessage(invite, aqua.GroupControlActionInviteAccept, time.Now().UTC())
+				if err != nil {
+					return err
+				}
+				if err := sendGroupControlToPeer(cmd, relayMode, invite.InviterPeerID, payloadRaw, groupInviteDecisionIdempotencyKey(invite, aqua.GroupControlActionInviteAccept)); err != nil {
+					return fmt.Errorf("invite %s accepted locally but delivery failed: %w", invite.InviteID, err)
+				}
 			}
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), map[string]any{
@@ -105,21 +137,41 @@ func newGroupInviteAcceptCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
+	cmd.Flags().BoolVar(&localOnly, "local-only", false, "Only mutate local state and skip network delivery")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }
 
 func newGroupInviteRejectCmd() *cobra.Command {
 	var outputJSON bool
+	var relayMode string
+	var localOnly bool
 	cmd := &cobra.Command{
-		Use:   "reject <group_id> <invite_id>",
-		Short: "Reject an invite",
-		Args:  cobra.ExactArgs(2),
+		Use:   "reject <group_id> [invite_id]",
+		Short: "Reject an invite and notify the inviter",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			invite, err := svc.RejectGroupInvite(cmd.Context(), args[0], args[1], time.Now().UTC())
+			inviteID, err := resolveGroupInviteDecisionID(cmd, svc, args[0], args[1:])
 			if err != nil {
 				return err
+			}
+			invite, err := svc.RejectGroupInvite(cmd.Context(), args[0], inviteID, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if !localOnly {
+				if strings.TrimSpace(invite.InviterPeerID) == "" {
+					return fmt.Errorf("invite %s is missing inviter_peer_id", invite.InviteID)
+				}
+				payloadRaw, err := aqua.EncodeGroupInviteDecisionMessage(invite, aqua.GroupControlActionInviteReject, time.Now().UTC())
+				if err != nil {
+					return err
+				}
+				if err := sendGroupControlToPeer(cmd, relayMode, invite.InviterPeerID, payloadRaw, groupInviteDecisionIdempotencyKey(invite, aqua.GroupControlActionInviteReject)); err != nil {
+					return fmt.Errorf("invite %s rejected locally but delivery failed: %w", invite.InviteID, err)
+				}
 			}
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), invite)
@@ -128,6 +180,88 @@ func newGroupInviteRejectCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
+	cmd.Flags().BoolVar(&localOnly, "local-only", false, "Only mutate local state and skip network delivery")
+	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
+	return cmd
+}
+
+func newGroupInvitesCmd() *cobra.Command {
+	var outputJSON bool
+	var groupID string
+	var status string
+	var incomingOnly bool
+	cmd := &cobra.Command{
+		Use:   "invites",
+		Short: "List local group invites",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc := serviceFromCmd(cmd)
+			invites, err := svc.ListGroupInvites(cmd.Context(), groupID)
+			if err != nil {
+				return err
+			}
+
+			var localPeerID string
+			if incomingOnly {
+				identity, ok, err := svc.GetIdentity(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("identity is not initialized; run `aqua init`")
+				}
+				localPeerID = identity.PeerID
+			}
+
+			parsedStatus := aqua.GroupInviteStatus("")
+			if strings.TrimSpace(status) != "" {
+				parsedStatus, err = aqua.ParseGroupInviteStatus(status)
+				if err != nil {
+					return err
+				}
+			}
+
+			filtered := make([]aqua.GroupInvite, 0, len(invites))
+			for _, invite := range invites {
+				if parsedStatus != "" && invite.Status != parsedStatus {
+					continue
+				}
+				if incomingOnly && strings.TrimSpace(invite.InviteePeerID) != localPeerID {
+					continue
+				}
+				filtered = append(filtered, invite)
+			}
+
+			if outputJSON {
+				return writeJSON(cmd.OutOrStdout(), filtered)
+			}
+			if len(filtered) == 0 {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no invites")
+				return nil
+			}
+			for i, invite := range filtered {
+				_, _ = fmt.Fprintf(
+					cmd.OutOrStdout(),
+					"[%d]\ngroup_id: %s\ninvite_id: %s\ninviter_peer_id: %s\ninvitee_peer_id: %s\nstatus: %s\ncreated_at: %s\nexpires_at: %s\n",
+					i+1,
+					invite.GroupID,
+					invite.InviteID,
+					invite.InviterPeerID,
+					invite.InviteePeerID,
+					invite.Status,
+					invite.CreatedAt.UTC().Format(time.RFC3339),
+					invite.ExpiresAt.UTC().Format(time.RFC3339),
+				)
+				if i < len(filtered)-1 {
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "")
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&groupID, "group-id", "", "Filter by group id")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by invite status: pending|accepted|rejected|expired")
+	cmd.Flags().BoolVar(&incomingOnly, "incoming", false, "Only show invites where local peer is invitee")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }
@@ -417,6 +551,77 @@ func roleForMember(state aqua.GroupRoleState, peerID string) aqua.GroupRole {
 		}
 	}
 	return aqua.GroupRoleMember
+}
+
+func sendGroupControlToPeer(cmd *cobra.Command, relayMode string, peerID string, payloadRaw []byte, idempotencyKey string) error {
+	node, err := newDialNodeWithRelayMode(cmd, relayMode)
+	if err != nil {
+		return err
+	}
+	defer node.Close()
+
+	_, err = node.PushData(
+		cmd.Context(),
+		strings.TrimSpace(peerID),
+		nil,
+		aqua.BuildGroupControlPushRequest(payloadRaw, idempotencyKey),
+		false,
+	)
+	return err
+}
+
+func groupInviteControlIdempotencyKey(invite aqua.GroupInvite) string {
+	return messageEnvelopeKey("group-invite:" + strings.TrimSpace(invite.GroupID) + ":" + strings.TrimSpace(invite.InviteID))
+}
+
+func groupInviteDecisionIdempotencyKey(invite aqua.GroupInvite, action aqua.GroupControlAction) string {
+	return messageEnvelopeKey(
+		"group-invite-decision:" +
+			strings.TrimSpace(invite.GroupID) + ":" +
+			strings.TrimSpace(invite.InviteID) + ":" +
+			strings.TrimSpace(string(action)),
+	)
+}
+
+func resolveGroupInviteDecisionID(cmd *cobra.Command, svc *aqua.Service, groupID string, extraArgs []string) (string, error) {
+	if len(extraArgs) > 0 {
+		inviteID := strings.TrimSpace(extraArgs[0])
+		if inviteID == "" {
+			return "", fmt.Errorf("invite_id is required")
+		}
+		return inviteID, nil
+	}
+
+	identity, ok, err := svc.GetIdentity(cmd.Context())
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("identity is not initialized; run `aqua init`")
+	}
+
+	invites, err := svc.ListGroupInvites(cmd.Context(), groupID)
+	if err != nil {
+		return "", err
+	}
+	pending := make([]aqua.GroupInvite, 0, len(invites))
+	for _, invite := range invites {
+		if invite.Status != aqua.GroupInviteStatusPending {
+			continue
+		}
+		if strings.TrimSpace(invite.InviteePeerID) != identity.PeerID {
+			continue
+		}
+		pending = append(pending, invite)
+	}
+	switch len(pending) {
+	case 0:
+		return "", fmt.Errorf("no pending incoming invite for group %s", strings.TrimSpace(groupID))
+	case 1:
+		return pending[0].InviteID, nil
+	default:
+		return "", fmt.Errorf("multiple pending incoming invites for group %s; specify invite_id", strings.TrimSpace(groupID))
+	}
 }
 
 func encodeJSON(v any) ([]byte, error) {

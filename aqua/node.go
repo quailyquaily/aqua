@@ -1247,13 +1247,30 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 			ReceivedAt:     now,
 			Deduped:        false,
 		}
+		groupControlErr := n.applyIncomingTopicSideEffects(fromPeerID, params.Topic, payloadBytes, now)
 		if n.opts.OnDataPush != nil {
 			n.opts.OnDataPush(event)
+		}
+		if groupControlErr != nil {
+			symbol := SymbolOf(groupControlErr)
+			if strings.TrimSpace(symbol) == "" {
+				symbol = ErrInvalidParamsSymbol
+			}
+			return nil, symbol, groupControlErr.Error()
 		}
 		return rpcDataPushResult{Accepted: true, Deduped: false}, "", ""
 	default:
 		return nil, ErrMethodNotAllowedSymbol, "method=" + req.Method
 	}
+}
+
+func (n *Node) applyIncomingTopicSideEffects(fromPeerID string, topic string, payloadBytes []byte, now time.Time) error {
+	if n == nil || !IsGroupControlTopic(topic) {
+		return nil
+	}
+	storeCtx, cancelStore := n.storeContext(context.Background())
+	defer cancelStore()
+	return n.svc.ApplyInboundGroupControl(storeCtx, fromPeerID, payloadBytes, now)
 }
 
 func (n *Node) writeRPCSuccess(stream network.Stream, id any, result any) (int, error) {

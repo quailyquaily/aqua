@@ -182,8 +182,9 @@ Manage membership and roles:
 
 ```bash
 aqua group invite <GROUP_ID> <PEER_ID> --json
-aqua group invite accept <GROUP_ID> <INVITE_ID> --json
-aqua group invite reject <GROUP_ID> <INVITE_ID> --json
+aqua group invites --incoming --status pending --json
+aqua group invite accept <GROUP_ID> --json
+aqua group invite reject <GROUP_ID> --json
 aqua group role <GROUP_ID> <PEER_ID> <manager|member> --json
 aqua group remove-member <GROUP_ID> <PEER_ID> --json
 ```
@@ -196,6 +197,12 @@ aqua group send <GROUP_ID> "hello group" --json
 
 Notes:
 
+- `aqua group invite` now creates a local pending invite and also delivers it over Aqua transport by default.
+- Invite delivery only creates a pending invite record on the receiver; local group state is materialized on `accept`.
+- Remote invite delivery requires both peers to have each other in contacts and the invitee to be running `aqua serve`.
+- Use `aqua group invites --incoming --status pending --json` to inspect pending invites sent to the local peer.
+- `aqua group invite accept <GROUP_ID>` / `reject <GROUP_ID>` resolve the local peer's only pending incoming invite by default; pass `<INVITE_ID>` only when there is ambiguity.
+- `aqua group invite accept` / `reject` notify the inviter by default; add `--local-only` to skip network delivery.
 - Current `aqua group send` is sender-side fanout to known members.
 - Incoming group messages use topic `group.message.v1`.
 - For agent mailbox processing, filter group traffic with:

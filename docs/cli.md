@@ -581,3 +581,132 @@ Flags:
 - `--topic`: filter by topic.
 - `--limit`: max records. `<= 0` means all. Default `50`.
 - `--json`: print structured JSON output.
+
+### Groups
+
+Group control currently uses topic `group.control.v1`, and group messages use topic `group.message.v1`.
+
+Before remote invite delivery works, both peers must:
+
+- run `aqua serve`
+- add each other as contacts
+
+#### `aqua group create`
+
+Usage:
+
+```bash
+aqua group create [--json]
+```
+
+#### `aqua group list`
+
+Usage:
+
+```bash
+aqua group list [--json]
+```
+
+#### `aqua group show`
+
+Usage:
+
+```bash
+aqua group show <group_id> [--json]
+```
+
+#### `aqua group invites`
+
+Usage:
+
+```bash
+aqua group invites [--group-id <group_id>] [--status <status>] [--incoming] [--json]
+```
+
+Flags:
+
+- `--group-id`: filter by group.
+- `--status`: filter by `pending|accepted|rejected|expired`.
+- `--incoming`: only show invites where local peer is the invitee.
+- `--json`: print structured JSON output.
+
+Example:
+
+```bash
+aqua group invites --incoming --status pending --json
+```
+
+#### `aqua group invite`
+
+Usage:
+
+```bash
+aqua group invite <group_id> <peer_id> [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Behavior notes:
+
+- By default this both stores the pending invite locally and delivers it to the invitee over Aqua transport.
+- The invitee stores a pending invite record first; local group state is created only after `accept`.
+- `--local-only` skips network delivery and only mutates local state.
+- Re-running the command for the same still-pending invite reuses the same invite record and retries delivery.
+
+#### `aqua group invite accept`
+
+Usage:
+
+```bash
+aqua group invite accept <group_id> [invite_id] [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Behavior notes:
+
+- With only `group_id`, Aqua resolves the local peer's only pending incoming invite for that group.
+- If there are multiple pending incoming invites for the same group, specify `invite_id`.
+- By default this accepts locally and sends `group.invite.accept` back to the inviter.
+- `--local-only` accepts locally without sending the response.
+- Re-running `accept` on an already accepted invite is a valid way to retry inviter notification.
+
+#### `aqua group invite reject`
+
+Usage:
+
+```bash
+aqua group invite reject <group_id> [invite_id] [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Behavior notes:
+
+- With only `group_id`, Aqua resolves the local peer's only pending incoming invite for that group.
+- If there are multiple pending incoming invites for the same group, specify `invite_id`.
+- By default this rejects locally and sends `group.invite.reject` back to the inviter.
+- `--local-only` rejects locally without sending the response.
+
+#### `aqua group role`
+
+Usage:
+
+```bash
+aqua group role <group_id> <peer_id> <manager|member> [--json]
+```
+
+#### `aqua group remove-member`
+
+Usage:
+
+```bash
+aqua group remove-member <group_id> <peer_id> [--json]
+```
+
+#### `aqua group send`
+
+Usage:
+
+```bash
+aqua group send <group_id> <message> [--relay-mode <mode>] [--content-type <type>] [--json]
+```
+
+Behavior notes:
+
+- Current `group send` is sender-side fanout to currently known group members.
+- Incoming group messages can be polled or watched with topic filter `group.message.v1`.

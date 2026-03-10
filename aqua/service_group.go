@@ -378,7 +378,7 @@ func (s *Service) resolveGroupInvite(ctx context.Context, groupID string, invite
 	if err != nil {
 		return GroupInvite{}, Group{}, err
 	}
-	group, roleState, members, invites, err := s.loadGroupState(ctx, groupID)
+	invites, err := s.store.GetGroupInvites(ctx, groupID)
 	if err != nil {
 		return GroupInvite{}, Group{}, err
 	}
@@ -394,11 +394,46 @@ func (s *Service) resolveGroupInvite(ctx context.Context, groupID string, invite
 		return GroupInvite{}, Group{}, fmt.Errorf("invite not found: %s", inviteID)
 	}
 	invite := invites[found]
-	if local.PeerID != invite.InviteePeerID && !isManagerPeer(roleState, local.PeerID) {
+
+	group, groupFound, err := s.store.GetGroup(ctx, groupID)
+	if err != nil {
+		return GroupInvite{}, Group{}, err
+	}
+	roleState := GroupRoleState{}
+	members := []GroupMember(nil)
+	if groupFound {
+		group, roleState, members, _, err = s.loadGroupState(ctx, groupID)
+		if err != nil {
+			return GroupInvite{}, Group{}, err
+		}
+	}
+
+	isInvitee := local.PeerID == invite.InviteePeerID
+	isManager := groupFound && isManagerPeer(roleState, local.PeerID)
+	if !isInvitee && !isManager {
 		return GroupInvite{}, Group{}, fmt.Errorf("invite can be resolved only by invitee or manager")
 	}
 
 	if invite.Status == target {
+		if target == GroupInviteStatusAccepted {
+			if !groupFound && isInvitee {
+				group, roleState, members = buildLocalGroupFromAcceptedInvite(invite, local.PeerID, now)
+				if err := s.store.PutGroup(ctx, group); err != nil {
+					return GroupInvite{}, Group{}, err
+				}
+				if err := s.store.PutGroupRoleState(ctx, roleState); err != nil {
+					return GroupInvite{}, Group{}, err
+				}
+				if err := s.store.PutGroupMembers(ctx, groupID, members); err != nil {
+					return GroupInvite{}, Group{}, err
+				}
+				groupFound = true
+			}
+			if groupFound {
+				group.ManagerPeerIDs = collectManagerPeerIDs(roleState)
+				group.LocalRole = resolveLocalRole(local.PeerID, roleState, members)
+			}
+		}
 		return invite, group, nil
 	}
 	if invite.Status != GroupInviteStatusPending {
@@ -415,37 +450,101 @@ func (s *Service) resolveGroupInvite(ctx context.Context, groupID string, invite
 	invite.RespondedAt = ptrTime(now)
 	invites[found] = invite
 
-	if target == GroupInviteStatusAccepted && !hasMemberPeer(members, invite.InviteePeerID) {
-		if len(members) >= group.MaxMembers {
-			return GroupInvite{}, Group{}, fmt.Errorf("group member limit reached: %d", group.MaxMembers)
+	if target == GroupInviteStatusAccepted {
+		switch {
+		case groupFound:
+			if !hasMemberPeer(members, invite.InviteePeerID) {
+				if len(members) >= group.MaxMembers {
+					return GroupInvite{}, Group{}, fmt.Errorf("group member limit reached: %d", group.MaxMembers)
+				}
+				members = append(members, GroupMember{
+					GroupID:    groupID,
+					PeerID:     invite.InviteePeerID,
+					JoinedAt:   now,
+					LastSeenAt: ptrTime(now),
+					UpdatedAt:  now,
+				})
+				roleState = ensureRoleForMembers(roleState, members, now)
+				group.Epoch++
+				group.UpdatedAt = now
+			}
+		case isInvitee:
+			group, roleState, members = buildLocalGroupFromAcceptedInvite(invite, local.PeerID, now)
+			groupFound = true
+		default:
+			return GroupInvite{}, Group{}, fmt.Errorf("group not found: %s", groupID)
 		}
-		members = append(members, GroupMember{
-			GroupID:    groupID,
-			PeerID:     invite.InviteePeerID,
-			JoinedAt:   now,
-			LastSeenAt: ptrTime(now),
-			UpdatedAt:  now,
-		})
-		roleState = ensureRoleForMembers(roleState, members, now)
-		group.Epoch++
-		group.UpdatedAt = now
 	}
-	group.ManagerPeerIDs = collectManagerPeerIDs(roleState)
-	group.LocalRole = resolveLocalRole(local.PeerID, roleState, members)
 
 	if err := s.store.PutGroupInvites(ctx, groupID, invites); err != nil {
 		return GroupInvite{}, Group{}, err
 	}
-	if err := s.store.PutGroupMembers(ctx, groupID, members); err != nil {
-		return GroupInvite{}, Group{}, err
-	}
-	if err := s.store.PutGroupRoleState(ctx, roleState); err != nil {
-		return GroupInvite{}, Group{}, err
-	}
-	if err := s.store.PutGroup(ctx, group); err != nil {
-		return GroupInvite{}, Group{}, err
+	if groupFound {
+		group.ManagerPeerIDs = collectManagerPeerIDs(roleState)
+		group.LocalRole = resolveLocalRole(local.PeerID, roleState, members)
+		if err := s.store.PutGroupMembers(ctx, groupID, members); err != nil {
+			return GroupInvite{}, Group{}, err
+		}
+		if err := s.store.PutGroupRoleState(ctx, roleState); err != nil {
+			return GroupInvite{}, Group{}, err
+		}
+		if err := s.store.PutGroup(ctx, group); err != nil {
+			return GroupInvite{}, Group{}, err
+		}
 	}
 	return invite, group, nil
+}
+
+func buildLocalGroupFromAcceptedInvite(invite GroupInvite, localPeerID string, now time.Time) (Group, GroupRoleState, []GroupMember) {
+	now = normalizedNow(now)
+	createdAt := invite.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	group := Group{
+		GroupID:        strings.TrimSpace(invite.GroupID),
+		Epoch:          1,
+		MaxMembers:     GroupMaxMembers,
+		ManagerPeerIDs: []string{strings.TrimSpace(invite.InviterPeerID)},
+		LocalRole:      GroupRoleMember,
+		CreatedAt:      createdAt.UTC(),
+		UpdatedAt:      now,
+	}
+	roleState := GroupRoleState{
+		GroupID:     group.GroupID,
+		RoleVersion: 1,
+		Roles: []GroupRoleEntry{
+			{
+				PeerID:    strings.TrimSpace(invite.InviterPeerID),
+				Role:      GroupRoleManager,
+				UpdatedAt: now,
+			},
+			{
+				PeerID:    strings.TrimSpace(localPeerID),
+				Role:      GroupRoleMember,
+				UpdatedAt: now,
+			},
+		},
+	}
+	members := []GroupMember{
+		{
+			GroupID:   group.GroupID,
+			PeerID:    strings.TrimSpace(invite.InviterPeerID),
+			JoinedAt:  createdAt.UTC(),
+			UpdatedAt: now,
+		},
+		{
+			GroupID:    group.GroupID,
+			PeerID:     strings.TrimSpace(localPeerID),
+			JoinedAt:   now,
+			LastSeenAt: ptrTime(now),
+			UpdatedAt:  now,
+		},
+	}
+	roleState = ensureRoleForMembers(roleState, members, now)
+	group.ManagerPeerIDs = collectManagerPeerIDs(roleState)
+	group.LocalRole = resolveLocalRole(localPeerID, roleState, members)
+	return group, roleState, members
 }
 
 func removePeerFromRoleState(state GroupRoleState, peerID string, now time.Time) (GroupRoleState, bool) {

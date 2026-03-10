@@ -87,7 +87,7 @@ func TestIDAutoInit_WithNickname(t *testing.T) {
 	}
 }
 
-func TestInboxListUnreadAutoMarksRead(t *testing.T) {
+func TestInboxListUnreadDoesNotAutoMarkRead(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	store := aqua.NewFileStore(dir)
@@ -136,11 +136,11 @@ func TestInboxListUnreadAutoMarksRead(t *testing.T) {
 	if len(afterFirstRead) != 1 {
 		t.Fatalf("stored inbox length mismatch: got %d want 1", len(afterFirstRead))
 	}
-	if !afterFirstRead[0].Read {
-		t.Fatalf("message should be auto-marked read after unread listing")
+	if afterFirstRead[0].Read {
+		t.Fatalf("message should remain unread after unread listing")
 	}
-	if afterFirstRead[0].ReadAt == nil {
-		t.Fatalf("message read_at should be set after unread listing")
+	if afterFirstRead[0].ReadAt != nil {
+		t.Fatalf("message read_at should remain unset after unread listing")
 	}
 
 	stdout2, stderr2, err := executeCLI(t, "--dir", dir, "inbox", "list", "--unread", "--json")
@@ -151,8 +151,140 @@ func TestInboxListUnreadAutoMarksRead(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout2), &records2); err != nil {
 		t.Fatalf("decode second inbox output json error = %v, stdout=%s", err, stdout2)
 	}
-	if len(records2) != 0 {
-		t.Fatalf("second unread list should be empty, got %d", len(records2))
+	if len(records2) != 1 {
+		t.Fatalf("second unread list length mismatch: got %d want 1", len(records2))
+	}
+}
+
+func TestInboxWatchOnceMarksRead(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	store := aqua.NewFileStore(dir)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	appendErrCh := make(chan error, 1)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		appendErrCh <- store.AppendInboxMessage(ctx, aqua.InboxMessage{
+			MessageID:      "msg-watch-1",
+			FromPeerID:     "12D3KooWpeerWatch",
+			Topic:          "chat.message",
+			ContentType:    "text/plain",
+			PayloadBase64:  base64.RawURLEncoding.EncodeToString([]byte("watch hello")),
+			IdempotencyKey: "watch-k-1",
+			SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f458",
+			ReceivedAt:     time.Now().UTC(),
+		})
+	}()
+
+	stdout, stderr, err := executeCLI(
+		t,
+		"--dir", dir,
+		"inbox", "watch",
+		"--once",
+		"--mark-read",
+		"--timeout", "2s",
+		"--poll-interval", "10ms",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("inbox watch --once --mark-read --json error = %v, stderr=%s", err, stderr)
+	}
+	if appendErr := <-appendErrCh; appendErr != nil {
+		t.Fatalf("AppendInboxMessage() in watch goroutine error = %v", appendErr)
+	}
+
+	var records []aqua.InboxMessage
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("decode watch output json error = %v, stdout=%s", err, stdout)
+	}
+	if len(records) != 1 {
+		t.Fatalf("watch output length mismatch: got %d want 1", len(records))
+	}
+	if records[0].MessageID != "msg-watch-1" {
+		t.Fatalf("watch message_id mismatch: got %q want %q", records[0].MessageID, "msg-watch-1")
+	}
+	if records[0].Read {
+		t.Fatalf("watch output should reflect unread state before mark-read persistence")
+	}
+
+	svc := aqua.NewService(aqua.NewFileStore(dir))
+	afterWatch, err := svc.ListInboxMessages(ctx, "", "", 10)
+	if err != nil {
+		t.Fatalf("ListInboxMessages() after watch error = %v", err)
+	}
+	if len(afterWatch) != 1 {
+		t.Fatalf("stored inbox length after watch mismatch: got %d want 1", len(afterWatch))
+	}
+	if !afterWatch[0].Read {
+		t.Fatalf("message should be marked read after watch --mark-read")
+	}
+	if afterWatch[0].ReadAt == nil {
+		t.Fatalf("message read_at should be set after watch --mark-read")
+	}
+}
+
+func TestInboxWatchOnceBatchesUnreadMessages(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	store := aqua.NewFileStore(dir)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	appendErrCh := make(chan error, 2)
+	go func() {
+		time.Sleep(40 * time.Millisecond)
+		appendErrCh <- store.AppendInboxMessage(ctx, aqua.InboxMessage{
+			MessageID:      "msg-batch-1",
+			FromPeerID:     "12D3KooWpeerBatch",
+			Topic:          "chat.message",
+			ContentType:    "text/plain",
+			PayloadBase64:  base64.RawURLEncoding.EncodeToString([]byte("first")),
+			IdempotencyKey: "batch-k-1",
+			SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f459",
+			ReceivedAt:     time.Now().UTC(),
+		})
+		time.Sleep(35 * time.Millisecond)
+		appendErrCh <- store.AppendInboxMessage(ctx, aqua.InboxMessage{
+			MessageID:      "msg-batch-2",
+			FromPeerID:     "12D3KooWpeerBatch",
+			Topic:          "chat.message",
+			ContentType:    "text/plain",
+			PayloadBase64:  base64.RawURLEncoding.EncodeToString([]byte("second")),
+			IdempotencyKey: "batch-k-2",
+			SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f460",
+			ReceivedAt:     time.Now().UTC(),
+		})
+	}()
+
+	stdout, stderr, err := executeCLI(
+		t,
+		"--dir", dir,
+		"inbox", "watch",
+		"--once",
+		"--timeout", "2s",
+		"--poll-interval", "10ms",
+		"--batch-window", "120ms",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("inbox watch --once --batch-window --json error = %v, stderr=%s", err, stderr)
+	}
+	for i := 0; i < 2; i++ {
+		if appendErr := <-appendErrCh; appendErr != nil {
+			t.Fatalf("AppendInboxMessage() in batch watch goroutine error = %v", appendErr)
+		}
+	}
+
+	var records []aqua.InboxMessage
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("decode batch watch output json error = %v, stdout=%s", err, stdout)
+	}
+	if len(records) != 2 {
+		t.Fatalf("batch watch output length mismatch: got %d want 2", len(records))
 	}
 }
 

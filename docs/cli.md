@@ -514,7 +514,42 @@ Flags:
 
 Behavior notes:
 
-- `--unread` automatically marks the listed messages as read after listing.
+- `--unread` is a pure filter and does not change read state.
+
+#### `aqua inbox watch`
+
+Usage:
+
+```bash
+aqua inbox watch \
+  [--from-peer-id <peer_id>] \
+  [--topic <topic>] \
+  [--limit <n>] \
+  [--poll-interval <duration>] \
+  [--batch-window <duration>] \
+  [--timeout <duration>] \
+  [--mark-read] \
+  [--once] \
+  [--json]
+```
+
+Flags:
+
+- `--from-peer-id`: filter by sender peer ID.
+- `--topic`: filter by topic.
+- `--limit`: max records emitted per wake. `<= 0` means all.
+- `--poll-interval`: how often to poll inbox state while waiting. Default `250ms`.
+- `--batch-window`: optional coalescing window after the first unread message arrives.
+- `--timeout`: stop watching after this duration. Default is no timeout.
+- `--mark-read`: mark emitted messages as read after printing them.
+- `--once`: exit after the first matching batch is emitted.
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- `watch` emits only unread messages.
+- without `--mark-read`, emitted messages stay unread.
+- `--batch-window` lets an agent trade lower wake frequency for slightly higher latency.
 
 #### `aqua inbox mark-read`
 

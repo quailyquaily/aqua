@@ -20,8 +20,6 @@ func newGroupCmd() *cobra.Command {
 	cmd.AddCommand(newGroupCreateCmd())
 	cmd.AddCommand(newGroupInviteCmd())
 	cmd.AddCommand(newGroupInvitesCmd())
-	cmd.AddCommand(newGroupRemoveMemberCmd())
-	cmd.AddCommand(newGroupRoleCmd())
 	cmd.AddCommand(newGroupListCmd())
 	cmd.AddCommand(newGroupShowCmd())
 	cmd.AddCommand(newGroupSendCmd())
@@ -40,9 +38,9 @@ func newGroupCreateCmd() *cobra.Command {
 				return err
 			}
 			if outputJSON {
-				return writeJSON(cmd.OutOrStdout(), group)
+				return writeJSON(cmd.OutOrStdout(), groupViewFromGroup(group))
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "group_id: %s\nepoch: %d\nmax_members: %d\nlocal_role: %s\n", group.GroupID, group.Epoch, group.MaxMembers, group.LocalRole)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "group_id: %s\nmax_members: %d\nlocal_role: %s\n", group.GroupID, group.MaxMembers, group.LocalRole)
 			return nil
 		},
 	}
@@ -130,10 +128,10 @@ func newGroupInviteAcceptCmd() *cobra.Command {
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), map[string]any{
 					"invite": invite,
-					"group":  group,
+					"group":  groupViewFromGroup(group),
 				})
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "group_id: %s\ninvite_id: %s\nstatus: %s\nepoch: %d\n", invite.GroupID, invite.InviteID, invite.Status, group.Epoch)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "group_id: %s\ninvite_id: %s\nstatus: %s\nlocal_role: %s\n", invite.GroupID, invite.InviteID, invite.Status, group.LocalRole)
 			return nil
 		},
 	}
@@ -338,7 +336,7 @@ func newGroupListCmd() *cobra.Command {
 				return err
 			}
 			if outputJSON {
-				return writeJSON(cmd.OutOrStdout(), groups)
+				return writeJSON(cmd.OutOrStdout(), groupViewsFromGroups(groups))
 			}
 			if len(groups) == 0 {
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no groups")
@@ -347,10 +345,9 @@ func newGroupListCmd() *cobra.Command {
 			for i, group := range groups {
 				_, _ = fmt.Fprintf(
 					cmd.OutOrStdout(),
-					"[%d]\ngroup_id: %s\nepoch: %d\nmax_members: %d\nlocal_role: %s\nupdated_at: %s\n",
+					"[%d]\ngroup_id: %s\nmax_members: %d\nlocal_role: %s\nupdated_at: %s\n",
 					i+1,
 					group.GroupID,
-					group.Epoch,
 					group.MaxMembers,
 					group.LocalRole,
 					group.UpdatedAt.UTC().Format(time.RFC3339),
@@ -379,7 +376,7 @@ func newGroupShowCmd() *cobra.Command {
 				return err
 			}
 			if outputJSON {
-				return writeJSON(cmd.OutOrStdout(), details)
+				return writeJSON(cmd.OutOrStdout(), groupDetailsViewFromDetails(details))
 			}
 
 			pendingInvites := 0
@@ -390,12 +387,10 @@ func newGroupShowCmd() *cobra.Command {
 			}
 			_, _ = fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"group_id: %s\nepoch: %d\nmax_members: %d\nmy_role: %s\nrole_version: %d\nactive_members: %d\npending_invites: %d\nmanagers: %s\n",
+				"group_id: %s\nmax_members: %d\nmy_role: %s\nactive_members: %d\npending_invites: %d\nmanagers: %s\n",
 				details.Group.GroupID,
-				details.Group.Epoch,
 				details.Group.MaxMembers,
 				details.Group.LocalRole,
-				details.RoleState.RoleVersion,
 				len(details.Members),
 				pendingInvites,
 				strings.Join(details.Group.ManagerPeerIDs, ","),
@@ -510,7 +505,6 @@ func newGroupSendCmd() *cobra.Command {
 			if outputJSON {
 				return writeJSON(cmd.OutOrStdout(), map[string]any{
 					"group_id":         groupID,
-					"epoch":            details.Group.Epoch,
 					"topic":            aqua.GroupMessageTopicV1,
 					"attempted_peers":  attempted,
 					"sent_peers":       sent,
@@ -523,9 +517,8 @@ func newGroupSendCmd() *cobra.Command {
 			}
 			_, _ = fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"group_id: %s\nepoch: %d\ntopic: %s\nattempted_peers: %d\nsent_peers: %d\nfailed_peers: %d\n",
+				"group_id: %s\ntopic: %s\nattempted_peers: %d\nsent_peers: %d\nfailed_peers: %d\n",
 				groupID,
-				details.Group.Epoch,
 				aqua.GroupMessageTopicV1,
 				attempted,
 				sent,
@@ -541,6 +534,27 @@ func newGroupSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&contentType, "content-type", "text/plain", "Group message content type")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
+}
+
+type groupView struct {
+	GroupID        string         `json:"group_id"`
+	MaxMembers     int            `json:"max_members"`
+	LocalRole      aqua.GroupRole `json:"local_role,omitempty"`
+	ManagerPeerIDs []string       `json:"manager_peer_ids,omitempty"`
+	CreatedAt      time.Time      `json:"created_at,omitempty"`
+	UpdatedAt      time.Time      `json:"updated_at,omitempty"`
+}
+
+type groupMemberView struct {
+	PeerID     string         `json:"peer_id"`
+	Role       aqua.GroupRole `json:"role"`
+	LastSeenAt *time.Time     `json:"last_seen_at,omitempty"`
+}
+
+type groupDetailsView struct {
+	Group   groupView          `json:"group"`
+	Members []groupMemberView  `json:"members"`
+	Invites []aqua.GroupInvite `json:"invites"`
 }
 
 func roleForMember(state aqua.GroupRoleState, peerID string) aqua.GroupRole {
@@ -621,6 +635,41 @@ func resolveGroupInviteDecisionID(cmd *cobra.Command, svc *aqua.Service, groupID
 		return pending[0].InviteID, nil
 	default:
 		return "", fmt.Errorf("multiple pending incoming invites for group %s; specify invite_id", strings.TrimSpace(groupID))
+	}
+}
+
+func groupViewFromGroup(group aqua.Group) groupView {
+	return groupView{
+		GroupID:        group.GroupID,
+		MaxMembers:     group.MaxMembers,
+		LocalRole:      group.LocalRole,
+		ManagerPeerIDs: append([]string(nil), group.ManagerPeerIDs...),
+		CreatedAt:      group.CreatedAt,
+		UpdatedAt:      group.UpdatedAt,
+	}
+}
+
+func groupViewsFromGroups(groups []aqua.Group) []groupView {
+	out := make([]groupView, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, groupViewFromGroup(group))
+	}
+	return out
+}
+
+func groupDetailsViewFromDetails(details aqua.GroupDetails) groupDetailsView {
+	members := make([]groupMemberView, 0, len(details.Members))
+	for _, member := range details.Members {
+		members = append(members, groupMemberView{
+			PeerID:     member.PeerID,
+			Role:       roleForMember(details.RoleState, member.PeerID),
+			LastSeenAt: member.LastSeenAt,
+		})
+	}
+	return groupDetailsView{
+		Group:   groupViewFromGroup(details.Group),
+		Members: members,
+		Invites: append([]aqua.GroupInvite(nil), details.Invites...),
 	}
 }
 

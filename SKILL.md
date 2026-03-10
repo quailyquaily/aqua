@@ -178,15 +178,13 @@ aqua group list --json
 aqua group show <GROUP_ID> --json
 ```
 
-Manage membership and roles:
+Manage invites and membership:
 
 ```bash
 aqua group invite <GROUP_ID> <PEER_ID> --json
 aqua group invites --incoming --status pending --json
 aqua group invite accept <GROUP_ID> --json
 aqua group invite reject <GROUP_ID> --json
-aqua group role <GROUP_ID> <PEER_ID> <manager|member> --json
-aqua group remove-member <GROUP_ID> <PEER_ID> --json
 ```
 
 Send a group message:
@@ -364,17 +362,14 @@ Note: errors starting with `ERR_` are protocol-level (`ProtocolError`) symbols. 
 | --- | --- |
 | `group_id is required` / `invite_id is required` | Required argument is missing or empty. |
 | `group not found: <group_id>` | Group does not exist in local state. |
-| `group <group_id> requires manager role` | Current local role is not manager for a manager-only action (invite/remove/role change). |
-| `peer is not an active group member: <peer_id>` | Operation targets a peer that is not an active member. |
+| `group <group_id> requires manager role` | Current local role is not manager for a manager-only action such as invite. |
 | `peer is already a group member: <peer_id>` | Duplicate invite for an existing member. |
 | `group member limit reached: <n>` | Group has reached max member capacity. |
 | `invite not found: <invite_id>` | Invite id does not exist in that group. |
 | `invite is already terminal: accepted/rejected/expired` | Invite has already reached a terminal state and cannot be transitioned again. |
 | `invite expired` | Invite TTL has passed. |
 | `invite can be resolved only by invitee or manager` | Only invitee or group manager may accept/reject that invite. |
-| `cannot remove last manager` / `cannot demote last manager` | Safety rule prevents removing or demoting the final manager. |
 | `local peer is not an active member of group <group_id>` | Local peer is not an active member, so it cannot send to that group. |
-| `invalid group role "..." (supported: manager, member)` | Invalid role argument in `group role`. |
 | `failure: peer_id=<id> err=...` (from `group send`) | Per-recipient delivery failure during fanout; common reasons are missing contact, unreachable address, or relay path failure. |
 
 ## Trust Practice

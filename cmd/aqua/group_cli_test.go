@@ -21,7 +21,7 @@ func TestGroupCLI_CreateListShowJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group create --json error = %v, stderr=%s", err, stderrCreate)
 	}
-	var created aqua.Group
+	var created groupView
 	if err := json.Unmarshal([]byte(stdoutCreate), &created); err != nil {
 		t.Fatalf("decode group create json error = %v, stdout=%s", err, stdoutCreate)
 	}
@@ -33,7 +33,7 @@ func TestGroupCLI_CreateListShowJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group list --json error = %v, stderr=%s", err, stderrList)
 	}
-	var listed []aqua.Group
+	var listed []groupView
 	if err := json.Unmarshal([]byte(stdoutList), &listed); err != nil {
 		t.Fatalf("decode group list json error = %v, stdout=%s", err, stdoutList)
 	}
@@ -48,7 +48,7 @@ func TestGroupCLI_CreateListShowJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group show --json error = %v, stderr=%s", err, stderrShow)
 	}
-	var details aqua.GroupDetails
+	var details groupDetailsView
 	if err := json.Unmarshal([]byte(stdoutShow), &details); err != nil {
 		t.Fatalf("decode group show json error = %v, stdout=%s", err, stdoutShow)
 	}
@@ -60,7 +60,7 @@ func TestGroupCLI_CreateListShowJSON(t *testing.T) {
 	}
 }
 
-func TestGroupCLI_InviteAcceptRoleJSON(t *testing.T) {
+func TestGroupCLI_InviteAcceptJSON(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -72,7 +72,7 @@ func TestGroupCLI_InviteAcceptRoleJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group create --json error = %v, stderr=%s", err, stderrCreate)
 	}
-	var created aqua.Group
+	var created groupView
 	if err := json.Unmarshal([]byte(stdoutCreate), &created); err != nil {
 		t.Fatalf("decode group create json error = %v, stdout=%s", err, stdoutCreate)
 	}
@@ -97,20 +97,17 @@ func TestGroupCLI_InviteAcceptRoleJSON(t *testing.T) {
 	if _, stderrAccept, err := executeCLI(t, "--dir", dir, "group", "invite", "accept", created.GroupID, invite.InviteID, "--local-only", "--json"); err != nil {
 		t.Fatalf("group invite accept --json error = %v, stderr=%s", err, stderrAccept)
 	}
-	if _, stderrRole, err := executeCLI(t, "--dir", dir, "group", "role", created.GroupID, remote.PeerID, "manager", "--json"); err != nil {
-		t.Fatalf("group role manager --json error = %v, stderr=%s", err, stderrRole)
-	}
 
 	stdoutShow, stderrShow, err := executeCLI(t, "--dir", dir, "group", "show", created.GroupID, "--json")
 	if err != nil {
 		t.Fatalf("group show --json error = %v, stderr=%s", err, stderrShow)
 	}
-	var details aqua.GroupDetails
+	var details groupDetailsView
 	if err := json.Unmarshal([]byte(stdoutShow), &details); err != nil {
 		t.Fatalf("decode group show json error = %v, stdout=%s", err, stdoutShow)
 	}
-	if len(details.Group.ManagerPeerIDs) != 2 {
-		t.Fatalf("manager peer ids mismatch: got %d want 2", len(details.Group.ManagerPeerIDs))
+	if len(details.Members) != 2 {
+		t.Fatalf("member count mismatch: got %d want 2", len(details.Members))
 	}
 }
 
@@ -126,7 +123,7 @@ func TestGroupCLI_InvitesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group create --json error = %v, stderr=%s", err, stderrCreate)
 	}
-	var created aqua.Group
+	var created groupView
 	if err := json.Unmarshal([]byte(stdoutCreate), &created); err != nil {
 		t.Fatalf("decode group create json error = %v, stdout=%s", err, stdoutCreate)
 	}
@@ -205,7 +202,7 @@ func TestGroupCLI_InviteAcceptByGroupIDJSON(t *testing.T) {
 	}
 	var accepted struct {
 		Invite aqua.GroupInvite `json:"invite"`
-		Group  aqua.Group       `json:"group"`
+		Group  groupView        `json:"group"`
 	}
 	if err := json.Unmarshal([]byte(stdoutAccept), &accepted); err != nil {
 		t.Fatalf("decode group invite accept json error = %v, stdout=%s", err, stdoutAccept)
@@ -218,5 +215,19 @@ func TestGroupCLI_InviteAcceptByGroupIDJSON(t *testing.T) {
 	}
 	if accepted.Group.LocalRole != aqua.GroupRoleMember {
 		t.Fatalf("accepted local role mismatch: got %s want %s", accepted.Group.LocalRole, aqua.GroupRoleMember)
+	}
+}
+
+func TestGroupCLI_HidesAdvancedGroupControlCommands(t *testing.T) {
+	t.Parallel()
+
+	groupCmd := newGroupCmd()
+	for _, child := range groupCmd.Commands() {
+		if child.Name() == "role" {
+			t.Fatalf("group role should not be exposed in main CLI surface")
+		}
+		if child.Name() == "remove-member" {
+			t.Fatalf("group remove-member should not be exposed in main CLI surface")
+		}
 	}
 }

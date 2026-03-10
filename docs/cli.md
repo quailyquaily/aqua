@@ -615,6 +615,11 @@ Usage:
 aqua group show <group_id> [--json]
 ```
 
+Behavior notes:
+
+- `group show` is for accepted local group state.
+- Pending incoming invites are inspected with `aqua group invites --incoming`.
+
 #### `aqua group invites`
 
 Usage:
@@ -681,22 +686,6 @@ Behavior notes:
 - If there are multiple pending incoming invites for the same group, specify `invite_id`.
 - By default this rejects locally and sends `group.invite.reject` back to the inviter.
 - `--local-only` rejects locally without sending the response.
-
-#### `aqua group role`
-
-Usage:
-
-```bash
-aqua group role <group_id> <peer_id> <manager|member> [--json]
-```
-
-#### `aqua group remove-member`
-
-Usage:
-
-```bash
-aqua group remove-member <group_id> <peer_id> [--json]
-```
 
 #### `aqua group send`
 

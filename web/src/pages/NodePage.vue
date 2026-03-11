@@ -1,9 +1,19 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useConsoleStore } from '../stores/console'
+import { formatTimestamp, relaySummary } from '../utils/messages'
 
 const store = useConsoleStore()
 const { loading, runtime } = storeToRefs(store)
+const runtimeStartedAt = computed(() => (runtime.value?.started_at ? formatTimestamp(runtime.value.started_at) : '-'))
+const relayStatus = computed(() => relaySummary(runtime.value?.recent_relay_events ?? []))
+const runtimeStatusClass = computed(() => {
+  const status = runtime.value?.status?.toLowerCase()
+  if (status === 'running' || status === 'ready' || status === 'online') return 'status-pill status-pill-ok'
+  if (!status || status === 'unknown') return 'status-pill status-pill-warn'
+  return 'status-pill status-pill-danger'
+})
 </script>
 
 <template>
@@ -19,7 +29,9 @@ const { loading, runtime } = storeToRefs(store)
         <div class="info-grid">
           <div class="info-item">
             <div class="info-label">Status</div>
-            <div class="info-value">{{ runtime?.status || 'unknown' }}</div>
+            <div class="info-value">
+              <span :class="runtimeStatusClass">{{ runtime?.status || 'unknown' }}</span>
+            </div>
           </div>
           <div class="info-item">
             <div class="info-label">Version</div>
@@ -27,7 +39,7 @@ const { loading, runtime } = storeToRefs(store)
           </div>
           <div class="info-item">
             <div class="info-label">Started</div>
-            <div class="info-value">{{ runtime?.started_at || '-' }}</div>
+            <div class="info-value">{{ runtimeStartedAt }}</div>
           </div>
           <div class="info-item">
             <div class="info-label">Web Console</div>
@@ -40,6 +52,10 @@ const { loading, runtime } = storeToRefs(store)
           <div class="info-item">
             <div class="info-label">Unread</div>
             <div class="info-value">{{ runtime?.unread_count ?? 0 }}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Relay Summary</div>
+            <div class="info-value">{{ relayStatus }}</div>
           </div>
           <div class="info-item">
             <div class="info-label">Contacts / Groups</div>

@@ -17,6 +17,7 @@
   --font-ui: "IBM Plex Sans", "Noto Sans SC", "Noto Sans JP", sans-serif;
   --font-mono: "IBM Plex Mono", "Iosevka Aile", monospace;
   --mono-size: 11px;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --topbar-height: 60px;
   --app-shell-vpad: 0;
   --sidebar-vpad: 16px;
@@ -44,10 +45,12 @@ body,
 body {
   min-height: 100vh;
   line-height: 1.5;
+  color: var(--text-0);
 }
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -59,6 +62,10 @@ button {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-1) 24%, white);
 }
 
 pre {
@@ -137,6 +144,104 @@ pre {
   gap: 8px;
 }
 
+.field-block {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field-hint {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.status-pill-ok {
+  border-color: color-mix(in srgb, var(--ok) 30%, var(--line));
+  color: var(--ok);
+}
+
+.status-pill-warn {
+  border-color: color-mix(in srgb, var(--accent-1) 26%, var(--line));
+  color: var(--accent-1);
+}
+
+.status-pill-danger {
+  border-color: color-mix(in srgb, var(--danger) 26%, var(--line));
+  color: var(--danger);
+}
+
+.empty-state-panel {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+  padding: 20px 22px 24px;
+}
+
+.empty-state-eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.empty-state-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-0);
+}
+
+.empty-state-copy {
+  margin: 0;
+  max-width: 44ch;
+  color: var(--text-1);
+  line-height: 1.6;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .q-input,
 .q-textarea,
 .q-dropdown-menu {
@@ -194,4 +299,15 @@ pre {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

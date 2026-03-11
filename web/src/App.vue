@@ -26,7 +26,9 @@ onBeforeUnmount(() => {
       <SidebarNav />
 
       <main class="content">
-        <QProgress v-if="loading" :infinite="true" />
+        <div class="content-progress" :class="{ 'content-progress-visible': loading }" aria-hidden="true">
+          <QProgress :infinite="true" />
+        </div>
         <ErrorBanner v-if="errorText" :text="errorText" @dismiss="store.clearError" />
         <div v-show="activeView === 'messages'" class="view">
           <MessagesPage />
@@ -64,10 +66,36 @@ onBeforeUnmount(() => {
 }
 
 .content {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.content-progress {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  right: 20px;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition:
+    opacity 180ms var(--ease-out-quart),
+    transform 180ms var(--ease-out-quart);
+}
+
+.content-progress-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.content-progress :deep(.q-progress) {
+  --q-progress-track-height: 3px;
+  --q-progress-track-radius: 0;
+  --q-progress-bar-radius: 0;
 }
 
 .view {
@@ -76,6 +104,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
+  .content-progress {
+    left: 12px;
+    right: 12px;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
     min-height: auto;

@@ -24,10 +24,19 @@ const timelineHeaderEl = ref<HTMLElement | null>(null)
 const composerEl = ref<HTMLElement | null>(null)
 const timelineHeaderHeight = ref(0)
 const composerHeight = ref(0)
+const creatingGroup = ref(false)
+const sendingDirect = ref(false)
+const sendingGroup = ref(false)
+const invitingMember = ref(false)
+const resolvingInviteKey = ref('')
 
 const orderedConversations = computed(() =>
   [...conversations.value].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
 )
+const hasConversations = computed(() => orderedConversations.value.length > 0)
+const canSendDirect = computed(() => directDraft.value.trim().length > 0)
+const canSendGroup = computed(() => groupDraft.value.trim().length > 0)
+const canInvite = computed(() => groupInvitePeerID.value.trim().length > 0)
 
 const timelineHeaderGroupTitle = computed(() => {
   const selected = selectedConversation.value
@@ -108,45 +117,81 @@ function conversationButtonClass(id: string): string {
   return selectedConversationId.value === id ? 'conversation-row plain active' : 'conversation-row plain'
 }
 
+function closeInviteDialog(): void {
+  if (invitingMember.value) return
+  showInviteDialog.value = false
+  groupInvitePeerID.value = ''
+}
+
 async function handleCreateGroup(): Promise<void> {
-  const created = await store.createGroup()
-  if (created) {
-    store.selectConversation(`group:${created.group_id}`)
-    store.setActiveView('messages')
+  if (creatingGroup.value) return
+  creatingGroup.value = true
+  try {
+    const created = await store.createGroup()
+    if (created) {
+      store.selectConversation(`group:${created.group_id}`)
+      store.setActiveView('messages')
+    }
+  } finally {
+    creatingGroup.value = false
   }
 }
 
 async function handleSendDirect(): Promise<void> {
+  if (sendingDirect.value || !canSendDirect.value) return
   const peerID = directPeerID.value
   const message = directDraft.value.trim()
   if (!peerID || !message) return
-  const ok = await store.sendDirectMessage(peerID, message)
-  if (!ok) return
-  directDraft.value = ''
-  store.selectConversation(`direct:${peerID}`)
+  sendingDirect.value = true
+  try {
+    const ok = await store.sendDirectMessage(peerID, message)
+    if (!ok) return
+    directDraft.value = ''
+    store.selectConversation(`direct:${peerID}`)
+  } finally {
+    sendingDirect.value = false
+  }
 }
 
 async function handleSendGroup(): Promise<void> {
+  if (sendingGroup.value || !canSendGroup.value) return
   const groupID = selectedGroup.value?.group_id
   const message = groupDraft.value.trim()
   if (!groupID || !message) return
-  const ok = await store.sendGroupMessage(groupID, message)
-  if (!ok) return
-  groupDraft.value = ''
+  sendingGroup.value = true
+  try {
+    const ok = await store.sendGroupMessage(groupID, message)
+    if (!ok) return
+    groupDraft.value = ''
+  } finally {
+    sendingGroup.value = false
+  }
 }
 
 async function handleInvite(): Promise<void> {
+  if (invitingMember.value || !canInvite.value) return
   const groupID = selectedGroup.value?.group_id
   const peerID = groupInvitePeerID.value.trim()
   if (!groupID || !peerID) return
-  const ok = await store.inviteToGroup(groupID, peerID)
-  if (!ok) return
-  groupInvitePeerID.value = ''
-  showInviteDialog.value = false
+  invitingMember.value = true
+  try {
+    const ok = await store.inviteToGroup(groupID, peerID)
+    if (!ok) return
+    showInviteDialog.value = false
+    groupInvitePeerID.value = ''
+  } finally {
+    invitingMember.value = false
+  }
 }
 
 async function handleResolveInvite(groupID: string, inviteID: string, action: 'accept' | 'reject'): Promise<void> {
-  await store.resolveInvite(groupID, inviteID, action)
+  if (resolvingInviteKey.value) return
+  resolvingInviteKey.value = `${inviteID}:${action}`
+  try {
+    await store.resolveInvite(groupID, inviteID, action)
+  } finally {
+    resolvingInviteKey.value = ''
+  }
 }
 
 watch(
@@ -179,6 +224,10 @@ watch(
   { flush: 'post' }
 )
 
+watch(showInviteDialog, (open) => {
+  if (!open && !invitingMember.value) groupInvitePeerID.value = ''
+})
+
 onMounted(() => {
   void bindTimelineInsetObserver()
   nextTick(() => {
@@ -198,7 +247,7 @@ onBeforeUnmount(() => {
       <div class="conversation-list">
         <div class="conversation-list-head">
           <div class="toolbar">
-            <QButton class="primary" @click="handleCreateGroup">+ Group</QButton>
+            <QButton class="primary" :loading="creatingGroup" @click="handleCreateGroup">+ Group</QButton>
             <QButton class="outlined" :disabled="loading" @click="store.refreshAll">Refresh</QButton>
           </div>
 
@@ -210,10 +259,20 @@ onBeforeUnmount(() => {
                 <span class="muted">{{ invite.inviter_peer_id }}</span>
               </div>
               <div class="invite-actions">
-                <QButton class="primary sm" @click="handleResolveInvite(invite.group_id, invite.invite_id, 'accept')">
+                <QButton
+                  class="primary sm"
+                  :loading="resolvingInviteKey === `${invite.invite_id}:accept`"
+                  :disabled="resolvingInviteKey !== '' && resolvingInviteKey !== `${invite.invite_id}:accept`"
+                  @click="handleResolveInvite(invite.group_id, invite.invite_id, 'accept')"
+                >
                   Accept
                 </QButton>
-                <QButton class="outlined sm" @click="handleResolveInvite(invite.group_id, invite.invite_id, 'reject')">
+                <QButton
+                  class="outlined sm"
+                  :loading="resolvingInviteKey === `${invite.invite_id}:reject`"
+                  :disabled="resolvingInviteKey !== '' && resolvingInviteKey !== `${invite.invite_id}:reject`"
+                  @click="handleResolveInvite(invite.group_id, invite.invite_id, 'reject')"
+                >
                   Reject
                 </QButton>
               </div>
@@ -221,16 +280,18 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div
+        <div v-if="!orderedConversations.length" class="conversation-list-empty">
+          No direct or group threads yet.
+        </div>
+
+        <button
           v-for="conversation in orderedConversations"
           :key="conversation.id"
+          type="button"
           :class="conversationButtonClass(conversation.id)"
-          role="button"
-          tabindex="0"
           :aria-current="selectedConversationId === conversation.id ? 'true' : undefined"
+          :title="conversation.title"
           @click="store.selectConversation(conversation.id)"
-          @keydown.enter.prevent="store.selectConversation(conversation.id)"
-          @keydown.space.prevent="store.selectConversation(conversation.id)"
         >
           <div class="conversation-copy">
             <div class="conversation-head">
@@ -242,111 +303,150 @@ onBeforeUnmount(() => {
             <span class="muted">{{ conversation.last_preview || 'No messages yet' }}</span>
             <span class="meta">{{ formatTimestamp(conversation.updated_at) }}</span>
           </div>
-        </div>
+        </button>
       </div>
     </aside>
 
     <section class="timeline-panel" :style="timelineInsetStyle">
-      <div ref="timelineHeaderEl" class="timeline-header frame flat">
-        <div>
-          <h2 class="title timeline-title" :title="selectedConversation?.title ?? 'Messages'">
-            <template v-if="timelineHeaderGroupTitle">
-              <span class="group-title-prefix">{{ timelineHeaderGroupTitle.prefix }}</span>
-              <span class="group-title-mask" aria-hidden="true">
-                <span
-                  v-for="chip in timelineHeaderGroupTitle.chips"
-                  :key="chip.key"
-                  class="group-title-chip"
-                  :style="chip.style"
-                />
-              </span>
-              <span v-if="timelineHeaderGroupTitle.suffix" class="group-title-suffix">{{ timelineHeaderGroupTitle.suffix }}</span>
-            </template>
-            <template v-else>
-              {{ selectedConversation?.title ?? 'Messages' }}
-            </template>
+      <div v-if="!selectedConversation" class="timeline-empty-shell">
+        <div class="empty-state-panel frame">
+          <p class="empty-state-eyebrow">Messages</p>
+          <h2 class="empty-state-title">
+            {{ hasConversations ? 'Select a conversation' : 'Start a thread' }}
           </h2>
-        </div>
-        <div v-if="selectedGroup" class="header-actions">
-          <QButton class="primary sm header-icon-button icon" aria-label="Add member" @click="showInviteDialog = true">
-            <QIconPlus class="icon"/>
-          </QButton>
+          <p class="empty-state-copy">
+            {{
+              hasConversations
+                ? 'Choose a direct chat or group from the list to inspect its timeline.'
+                : 'Open Contacts to start a direct conversation or create a group to begin coordinating from this console.'
+            }}
+          </p>
+          <div class="empty-state-actions">
+            <QButton class="primary" :loading="creatingGroup" @click="handleCreateGroup">Create Group</QButton>
+            <QButton class="outlined" @click="store.setActiveView('contacts')">Open Contacts</QButton>
+          </div>
         </div>
       </div>
 
-      <div ref="timelineEl" class="timeline">
-        <article
-          v-for="message in selectedTimeline"
-          :key="message.id"
-          class="bubble"
-          :class="message.direction"
-        >
-          <div class="bubble-frame frame">
-            <div class="bubble-meta">
-              <span class="bubble-author">
-                {{ message.direction === 'inbound' ? store.labelForPeer(message.peer_id ?? '') : 'You' }}
-              </span>
-              <span class="muted-text">{{ formatTimestamp(message.timestamp) }}</span>
+      <template v-else>
+        <div ref="timelineHeaderEl" class="timeline-header frame flat">
+          <div>
+            <h2 class="title timeline-title" :title="selectedConversation.title">
+              <template v-if="timelineHeaderGroupTitle">
+                <span class="group-title-prefix">{{ timelineHeaderGroupTitle.prefix }}</span>
+                <span class="group-title-mask" aria-hidden="true">
+                  <span
+                    v-for="chip in timelineHeaderGroupTitle.chips"
+                    :key="chip.key"
+                    class="group-title-chip"
+                    :style="chip.style"
+                  />
+                </span>
+                <span v-if="timelineHeaderGroupTitle.suffix" class="group-title-suffix">{{ timelineHeaderGroupTitle.suffix }}</span>
+              </template>
+              <template v-else>
+                {{ selectedConversation.title }}
+              </template>
+            </h2>
+          </div>
+          <div v-if="selectedGroup" class="header-actions">
+            <QButton class="primary sm header-icon-button icon" aria-label="Add member" @click="showInviteDialog = true">
+              <QIconPlus class="icon" />
+            </QButton>
+          </div>
+        </div>
+
+        <div ref="timelineEl" class="timeline">
+          <article
+            v-for="message in selectedTimeline"
+            :key="message.id"
+            class="bubble"
+            :class="message.direction"
+          >
+            <div class="bubble-frame frame">
+              <div class="bubble-meta">
+                <span class="bubble-author">
+                  {{ message.direction === 'inbound' ? store.labelForPeer(message.peer_id ?? '') : 'You' }}
+                </span>
+                <span class="muted-text">{{ formatTimestamp(message.timestamp) }}</span>
+              </div>
+              <div class="bubble-body">{{ message.text }}</div>
+              <div class="bubble-foot">
+                <code class="topic-code">{{ message.topic }}</code>
+                <QButton
+                  v-if="message.direction === 'inbound' && message.read === false"
+                  class="plain xs"
+                  @click="store.markMessageRead(message.id)"
+                >
+                  Mark Read
+                </QButton>
+              </div>
             </div>
-            <div class="bubble-body">{{ message.text }}</div>
-            <div class="bubble-foot">
-              <code class="topic-code">{{ message.topic }}</code>
-              <QButton
-                v-if="message.direction === 'inbound' && message.read === false"
-                class="plain xs"
-                @click="store.markMessageRead(message.id)"
-              >
-                Mark Read
+          </article>
+          <QFence v-if="!selectedTimeline.length" class="timeline-empty" text="No messages yet." />
+        </div>
+
+        <div v-if="selectedConversation.kind === 'direct'" ref="composerEl" class="composer frame flat" role="group" aria-label="Direct message composer">
+          <QTextarea
+            class="composer-textarea"
+            v-model="directDraft"
+            rows="1"
+            placeholder="Type a direct message..."
+          >
+            <template #append>
+              <div class="composer-send-wrap">
+                <QButton
+                  class="primary sm composer-send icon"
+                  aria-label="Send direct message"
+                  :disabled="!canSendDirect"
+                  :loading="sendingDirect"
+                  @click="handleSendDirect"
+                >
+                  <QIconSend class="icon" />
+                </QButton>
+              </div>
+            </template>
+          </QTextarea>
+        </div>
+
+        <div v-else-if="selectedConversation.kind === 'group'" ref="composerEl" class="composer frame flat" role="group" aria-label="Group message composer">
+          <QTextarea
+            class="composer-textarea"
+            v-model="groupDraft"
+            rows="1"
+            placeholder="Type a group message..."
+          >
+            <template #append>
+              <div class="composer-send-wrap">
+                <QButton
+                  class="primary sm composer-send icon"
+                  aria-label="Send group message"
+                  :disabled="!canSendGroup"
+                  :loading="sendingGroup"
+                  @click="handleSendGroup"
+                >
+                  <QIconSend class="icon" />
+                </QButton>
+              </div>
+            </template>
+          </QTextarea>
+        </div>
+
+        <QDialog v-model="showInviteDialog" title="Invite Member">
+          <div class="invite-dialog-body">
+            <label class="field-block">
+              <span class="field-label">Peer ID</span>
+              <QInput v-model="groupInvitePeerID" placeholder="12D3KooW..." />
+            </label>
+            <div class="invite-dialog-actions">
+              <QButton class="outlined" :disabled="invitingMember" @click="closeInviteDialog">Cancel</QButton>
+              <QButton class="primary" :disabled="!canInvite" :loading="invitingMember" @click="handleInvite">
+                Invite
               </QButton>
             </div>
           </div>
-        </article>
-        <QFence v-if="!selectedTimeline.length" class="timeline-empty" text="No messages yet." />
-      </div>
-
-      <div v-if="selectedConversation?.kind === 'direct'" ref="composerEl" class="composer frame flat">
-        <QTextarea
-          class="composer-textarea"
-          v-model="directDraft"
-          rows="1"
-          placeholder="Type a direct message..."
-        >
-          <template #append>
-            <div class="composer-send-wrap">
-              <QButton class="primary sm composer-send icon" aria-label="Send direct message" @click="handleSendDirect">
-                <QIconSend class="icon" />
-              </QButton>
-            </div>
-          </template>
-        </QTextarea>
-      </div>
-
-      <div v-else-if="selectedConversation?.kind === 'group'" ref="composerEl" class="composer frame flat">
-        <QTextarea
-          class="composer-textarea"
-          v-model="groupDraft"
-          rows="1"
-          placeholder="Type a group message..."
-        >
-          <template #append>
-            <div class="composer-send-wrap">
-              <QButton class="primary sm composer-send icon" aria-label="Send group message" @click="handleSendGroup">
-                <QIconSend class="icon" />
-              </QButton>
-            </div>
-          </template>
-        </QTextarea>
-      </div>
-
-      <QDialog v-model="showInviteDialog" title="Invite Member">
-        <div class="invite-dialog-body">
-          <QInput v-model="groupInvitePeerID" placeholder="Peer ID" />
-          <div class="invite-dialog-actions">
-            <QButton class="outlined" @click="showInviteDialog = false">Cancel</QButton>
-            <QButton class="primary" @click="handleInvite">Invite</QButton>
-          </div>
-        </div>
-      </QDialog>
+        </QDialog>
+      </template>
     </section>
   </section>
 </template>
@@ -466,6 +566,12 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--line-soft);
 }
 
+.conversation-list-empty {
+  padding: 14px 12px 18px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
 .invite-list {
   display: grid;
   gap: 8px;
@@ -495,6 +601,7 @@ onBeforeUnmount(() => {
 }
 
 .conversation-row {
+  appearance: none;
   width: 100%;
   display: block;
   padding: 0;
@@ -502,6 +609,9 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--line-soft);
   background: transparent;
   cursor: pointer;
+  transition:
+    background-color 180ms var(--ease-out-quart),
+    border-color 180ms var(--ease-out-quart);
 }
 
 .conversation-row:focus-visible {
@@ -509,8 +619,19 @@ onBeforeUnmount(() => {
   outline-offset: -1px;
 }
 
+.conversation-row:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+
 .conversation-row.active {
   background: rgba(217, 106, 43, 0.12);
+}
+
+.timeline-empty-shell {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
 }
 
 .timeline {
@@ -686,7 +807,10 @@ onBeforeUnmount(() => {
   }
 
   .timeline-header {
-    flex-direction: column;
+    height: auto;
+    min-height: 56px;
+    max-height: none;
+    align-items: flex-start;
   }
 
   .invite-card {
@@ -697,6 +821,10 @@ onBeforeUnmount(() => {
   .composer-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .timeline-empty-shell {
+    padding: 16px;
   }
 }
 </style>

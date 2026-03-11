@@ -24,23 +24,7 @@ type outboxMessageJSON struct {
 
 func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON bool) {
 	if outputJSON {
-		payloadText := ""
-		if payloadIsTextual(event.ContentType) {
-			payloadText = string(event.PayloadBytes)
-		}
-		_ = writeJSON(cmd.OutOrStdout(), map[string]any{
-			"event":           "agent.data.push",
-			"from_peer_id":    event.FromPeerID,
-			"topic":           event.Topic,
-			"content_type":    event.ContentType,
-			"idempotency_key": event.IdempotencyKey,
-			"session_id":      event.SessionID,
-			"reply_to":        event.ReplyTo,
-			"deduped":         event.Deduped,
-			"received_at":     event.ReceivedAt,
-			"payload_text":    payloadText,
-			"payload_base64":  event.PayloadBase64,
-		})
+		_ = writeJSON(cmd.OutOrStdout(), dataPushEventView(event))
 		return
 	}
 
@@ -60,6 +44,26 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 		return
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(bytes): %d\n", len(event.PayloadBytes))
+}
+
+func dataPushEventView(event aqua.DataPushEvent) map[string]any {
+	payloadText := ""
+	if payloadIsTextual(event.ContentType) {
+		payloadText = string(event.PayloadBytes)
+	}
+	return map[string]any{
+		"event":           "agent.data.push",
+		"from_peer_id":    event.FromPeerID,
+		"topic":           event.Topic,
+		"content_type":    event.ContentType,
+		"idempotency_key": event.IdempotencyKey,
+		"session_id":      event.SessionID,
+		"reply_to":        event.ReplyTo,
+		"deduped":         event.Deduped,
+		"received_at":     event.ReceivedAt,
+		"payload_text":    payloadText,
+		"payload_base64":  event.PayloadBase64,
+	}
 }
 
 func printRelayEvent(cmd *cobra.Command, event aqua.RelayEvent, outputJSON bool) {

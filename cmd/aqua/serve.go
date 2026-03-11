@@ -27,6 +27,7 @@ func newServeCmd() *cobra.Command {
 	var webConsole bool
 	var webConsoleAddr string
 	var consoleWebDstDir string
+	var webhookURL string
 	var outputJSON bool
 	var dryRun bool
 	cmd := &cobra.Command{
@@ -49,6 +50,10 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resolvedWebhookURL, err := resolveServeWebhookURL(webhookURL)
+			if err != nil {
+				return err
+			}
 			relayProbeEnabled, err := resolveRelayProbeEnabledFromEnv()
 			if err != nil {
 				return err
@@ -67,6 +72,7 @@ func newServeCmd() *cobra.Command {
 				"web_console", webConsole,
 				"web_console_addr", strings.TrimSpace(webConsoleAddr),
 				"console_web_dst_dir", strings.TrimSpace(consoleWebDstDir),
+				"webhook_url", resolvedWebhookURL,
 				"dryrun", dryRun,
 			)
 
@@ -86,10 +92,14 @@ func newServeCmd() *cobra.Command {
 						"relay_mode":   resolvedRelayMode,
 						"relay_probe":  relayProbeEnabled,
 						"addresses":    resolvedAddresses,
+						"webhook_url":  resolvedWebhookURL,
 					})
 					return nil
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: dryrun\ndryrun: true\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\nrelay_probe: %t\n", identity.NodeUUID, identity.PeerID, resolvedRelayMode, relayProbeEnabled)
+				if resolvedWebhookURL != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "webhook: %s\n", resolvedWebhookURL)
+				}
 				for _, listenAddr := range resolvedListenAddrs {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "listen: %s\n", listenAddr)
 				}
@@ -103,6 +113,11 @@ func newServeCmd() *cobra.Command {
 			}
 
 			var consoleServer *webConsoleServer
+			webhookDispatcher, err := newDataPushWebhookDispatcher(runCtx, resolvedWebhookURL, logger)
+			if err != nil {
+				return err
+			}
+			defer webhookDispatcher.close()
 
 			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
 				ListenAddrs:       listenAddrs,
@@ -114,6 +129,9 @@ func newServeCmd() *cobra.Command {
 					printDataPushEvent(cmd, event, outputJSON)
 					if consoleServer != nil {
 						consoleServer.recordDataPush(event)
+					}
+					if webhookDispatcher != nil {
+						webhookDispatcher.enqueue(event)
 					}
 				},
 				OnRelayEvent: func(event aqua.RelayEvent) {
@@ -162,6 +180,7 @@ func newServeCmd() *cobra.Command {
 					"relay_addrs": resolvedRelayAddrs,
 					"relay_mode":  resolvedRelayMode,
 					"relay_probe": relayProbeEnabled,
+					"webhook_url": resolvedWebhookURL,
 				}
 				if webConsole {
 					payload["web_console"] = true
@@ -181,6 +200,9 @@ func newServeCmd() *cobra.Command {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "web_console: http://%s\n", consoleAddr)
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "console_web_dst_dir: %s\n", expandHomePath(consoleWebDstDir))
 				}
+				if resolvedWebhookURL != "" {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "webhook: %s\n", resolvedWebhookURL)
+				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "waiting for incoming streams... (Ctrl+C to stop)")
 			}
 
@@ -194,6 +216,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&webConsole, "web-console", false, "Enable Web Console HTTP server")
 	cmd.Flags().StringVar(&webConsoleAddr, "web-console-addr", webConsoleListenDefault, "Web Console HTTP listen address")
 	cmd.Flags().StringVar(&consoleWebDstDir, "console-web-dst-dir", "", "Web Console built SPA directory")
+	cmd.Flags().StringVar(&webhookURL, "webhook", "", "POST each inbound agent.data.push event to this HTTP(S) webhook with exponential retry on failure")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	cmd.Flags().BoolVar(&dryRun, "dryrun", false, "Print derived addresses and exit without listening")
 	return cmd

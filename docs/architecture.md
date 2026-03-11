@@ -20,7 +20,7 @@ The goal is to make Aqua independently buildable, runnable, and releasable witho
 - `aqua serve`
   - Starts a libp2p node and handles `hello` and JSON-RPC.
   - Supports relay reservation via `--relay` and path policy via `--relay-mode`.
-  - Writes inbound `agent.data.push` messages to local inbox and can emit events to stdout.
+  - Writes inbound `agent.data.push` messages to local inbox and can emit events to stdout or an HTTP(S) webhook.
 - `aqua relay serve`
   - Starts a dedicated Circuit Relay v2 service for cross-network connectivity.
   - Supports open mode (default) or peer allowlist mode (`--allow-peer`).

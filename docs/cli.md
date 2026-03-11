@@ -348,6 +348,7 @@ aqua serve \
   [--listen <multiaddr> ...] \
   [--relay <multiaddr> ...] \
   [--relay-mode auto|off|required] \
+  [--webhook <http[s]://...>] \
   [--dryrun] \
   [--json]
 ```
@@ -360,6 +361,7 @@ Flags:
   - fallback on bind failure: random ports (`/udp/0`, `/tcp/0`, `/tcp/0/ws`)
 - `--relay` (repeatable): relay endpoints to reserve.
 - `--relay-mode`: `auto|off|required` (default `auto`).
+- `--webhook`: POST every inbound `agent.data.push` event to the given HTTP(S) webhook.
 - `--dryrun`: print derived advertise addresses and exit without starting listeners.
 - `--json`: print ready/event output as JSON.
 
@@ -367,6 +369,8 @@ Behavior notes:
 
 - For wildcard listen addresses (`0.0.0.0` or `::`), Aqua auto-expands printed addresses with detected local interface IPs (for example Tailscale).
 - With configured `--relay`, Aqua attempts Circuit Relay v2 reservation at startup.
+- `--webhook` sends the same JSON event view as `serve --json` for each inbound message.
+- Webhook delivery treats non-2xx responses and transport errors as failures, then retries with exponentially increasing delay until success or process exit.
 - `--json` includes relay events like `relay.reservation.ok`, `relay.path.selected`, and `relay.fallback`.
 - With `--dryrun`, Aqua does not create libp2p listeners and prints address planning output only (useful for CLI/programmatic address discovery).
 

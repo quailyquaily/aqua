@@ -4,11 +4,10 @@ import { useConsoleStore } from '../stores/console'
 
 const store = useConsoleStore()
 
-const items: Array<{ id: ViewName; title: string }> = [
-  { id: 'messages', title: 'Messages' },
-  { id: 'contacts', title: 'Contacts' },
-  { id: 'node', title: 'Node' },
-  { id: 'settings', title: 'Settings' }
+const items: Array<{ id: ViewName; title: string; icon: string }> = [
+  { id: 'messages', title: 'Messages', icon: 'QIconMessageChatSquare' },
+  { id: 'contacts', title: 'Contacts', icon: 'QIconUsers' },
+  { id: 'node', title: 'Node', icon: 'QIconCpuChip' }
 ]
 
 function navClass(id: ViewName): string {
@@ -18,6 +17,12 @@ function navClass(id: ViewName): string {
 
 <template>
   <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-copy">
+        <div class="brand-title">AQUA</div>
+      </div>
+    </div>
+
     <div class="sidebar-nav">
       <div
         v-for="item in items"
@@ -30,6 +35,7 @@ function navClass(id: ViewName): string {
         @keydown.enter.prevent="store.setActiveView(item.id)"
         @keydown.space.prevent="store.setActiveView(item.id)"
       >
+        <component :is="item.icon" class="nav-icon" />
         <span class="nav-label">{{ item.title }}</span>
       </div>
     </div>
@@ -38,16 +44,40 @@ function navClass(id: ViewName): string {
 
 <style scoped>
 .sidebar {
-  padding: 8px 8px 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 8px 8px 0;
   border-right: 1px solid var(--line);
   height: 100%;
   min-height: 100%;
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 8px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-1);
+}
+
 .sidebar-nav {
   display: grid;
   gap: 0;
-  height: calc(100% - var(--sidebar-vpad));
+  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
   align-content: start;
 }
@@ -98,5 +128,11 @@ function navClass(id: ViewName): string {
 
 .nav-label {
   min-width: 0;
+}
+
+.nav-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
 }
 </style>

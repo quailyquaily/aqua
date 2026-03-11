@@ -9,7 +9,7 @@ export interface APIErrorEnvelope {
   error: APIErrorBody
 }
 
-export type ViewName = 'messages' | 'contacts' | 'node' | 'settings'
+export type ViewName = 'messages' | 'contacts' | 'node'
 
 export interface IdentityView {
   node_uuid: string

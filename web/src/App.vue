@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import AppTopBar from './components/AppTopBar.vue'
 import ErrorBanner from './components/ErrorBanner.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import ContactsPage from './pages/ContactsPage.vue'
 import MessagesPage from './pages/MessagesPage.vue'
 import NodePage from './pages/NodePage.vue'
-import SettingsPage from './pages/SettingsPage.vue'
 import { useConsoleStore } from './stores/console'
 
 const store = useConsoleStore()
@@ -24,24 +22,20 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-shell">
-    <AppTopBar />
     <div class="workspace">
       <SidebarNav />
 
       <main class="content">
         <QProgress v-if="loading" :infinite="true" />
         <ErrorBanner v-if="errorText" :text="errorText" @dismiss="store.clearError" />
-        <div v-show="activeView === 'messages'">
+        <div v-show="activeView === 'messages'" class="view">
           <MessagesPage />
         </div>
-        <div v-show="activeView === 'contacts'">
+        <div v-show="activeView === 'contacts'" class="view">
           <ContactsPage />
         </div>
-        <div v-show="activeView === 'node'">
+        <div v-show="activeView === 'node'" class="view">
           <NodePage />
-        </div>
-        <div v-show="activeView === 'settings'">
-          <SettingsPage />
         </div>
       </main>
     </div>
@@ -57,7 +51,6 @@ onBeforeUnmount(() => {
   height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-top: var(--topbar-height);
 }
 
 .workspace {
@@ -67,24 +60,25 @@ onBeforeUnmount(() => {
   align-items: stretch;
   gap: 0;
   height: 100%;
-  min-height: calc(100vh - var(--app-shell-vpad) - var(--topbar-height));
-  min-height: calc(100dvh - var(--app-shell-vpad) - var(--topbar-height));
+  min-height: 100%;
 }
 
 .content {
-  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
+}
+
+.view {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 @media (max-width: 960px) {
   .workspace {
     grid-template-columns: 1fr;
     min-height: auto;
-  }
-
-  .content {
-    padding: 10px;
   }
 }
 </style>

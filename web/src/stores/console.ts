@@ -29,6 +29,7 @@ export const useConsoleStore = defineStore('console', () => {
   const groups = ref<Group[]>([])
   const invites = ref<GroupInvite[]>([])
   const selectedConversationId = ref('')
+  const pendingDirectPeerID = ref('')
   const wsState = ref<'connecting' | 'open' | 'closed'>('closed')
 
   const contactMap = computed(() => {
@@ -39,14 +40,28 @@ export const useConsoleStore = defineStore('console', () => {
     return map
   })
 
-  const conversations = computed<Conversation[]>(() =>
-    buildConversations({
+  const conversations = computed<Conversation[]>(() => {
+    const items = buildConversations({
       inbox: inbox.value,
       outbox: outbox.value,
       groups: groups.value,
       labelForPeer
     })
-  )
+    if (pendingDirectPeerID.value) {
+      const id = `direct:${pendingDirectPeerID.value}`
+      if (!items.some((item) => item.id === id)) {
+        items.unshift({
+          id,
+          kind: 'direct',
+          title: labelForPeer(pendingDirectPeerID.value),
+          updated_at: new Date(0).toISOString(),
+          unread_count: 0,
+          last_preview: ''
+        })
+      }
+    }
+    return items
+  })
 
   watch(
     conversations,
@@ -96,6 +111,13 @@ export const useConsoleStore = defineStore('console', () => {
 
   function selectConversation(id: string): void {
     selectedConversationId.value = id
+    pendingDirectPeerID.value = id.startsWith('direct:') ? id.replace('direct:', '') : ''
+  }
+
+  function openDirectConversation(peerID: string): void {
+    pendingDirectPeerID.value = peerID
+    activeView.value = 'messages'
+    selectedConversationId.value = `direct:${peerID}`
   }
 
   function clearError(): void {
@@ -329,6 +351,7 @@ export const useConsoleStore = defineStore('console', () => {
     relaySummary,
     setActiveView,
     selectConversation,
+    openDirectConversation,
     clearError,
     refreshAll,
     start,

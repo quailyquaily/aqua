@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -23,6 +24,9 @@ func newServeCmd() *cobra.Command {
 	var listenAddrs []string
 	var relayAddrs []string
 	var relayMode string
+	var webConsole bool
+	var webConsoleAddr string
+	var consoleWebDstDir string
 	var outputJSON bool
 	var dryRun bool
 	cmd := &cobra.Command{
@@ -51,12 +55,18 @@ func newServeCmd() *cobra.Command {
 			}
 			resolvedListenAddrs := normalizeAddressList(listenAddrs)
 			resolvedRelayAddrs := normalizeAddressList(relayAddrs)
+			if !webConsole && strings.TrimSpace(consoleWebDstDir) != "" {
+				return fmt.Errorf("--console-web-dst-dir requires --web-console")
+			}
 			logger.Debug(
 				"serve config",
 				"listen_addrs", resolvedListenAddrs,
 				"relay_addrs", resolvedRelayAddrs,
 				"relay_mode", resolvedRelayMode,
 				"relay_probe", relayProbeEnabled,
+				"web_console", webConsole,
+				"web_console_addr", strings.TrimSpace(webConsoleAddr),
+				"console_web_dst_dir", strings.TrimSpace(consoleWebDstDir),
 				"dryrun", dryRun,
 			)
 
@@ -92,6 +102,8 @@ func newServeCmd() *cobra.Command {
 				return nil
 			}
 
+			var consoleServer *webConsoleServer
+
 			node, err := aqua.NewNode(runCtx, svc, aqua.NodeOptions{
 				ListenAddrs:       listenAddrs,
 				RelayAddrs:        relayAddrs,
@@ -100,9 +112,15 @@ func newServeCmd() *cobra.Command {
 				Logger:            logger,
 				OnDataPush: func(event aqua.DataPushEvent) {
 					printDataPushEvent(cmd, event, outputJSON)
+					if consoleServer != nil {
+						consoleServer.recordDataPush(event)
+					}
 				},
 				OnRelayEvent: func(event aqua.RelayEvent) {
 					printRelayEvent(cmd, event, outputJSON)
+					if consoleServer != nil {
+						consoleServer.recordRelayEvent(event)
+					}
 				},
 			})
 			if err != nil {
@@ -110,8 +128,33 @@ func newServeCmd() *cobra.Command {
 			}
 			defer node.Close()
 
+			var consoleAddr string
+			if webConsole {
+				var shutdownWebConsole func(context.Context) error
+				consoleAddr, consoleServer, shutdownWebConsole, err = startWebConsoleServer(webConsoleConfig{
+					ListenAddr:  webConsoleAddr,
+					StaticDir:   consoleWebDstDir,
+					ListenAddrs: resolvedListenAddrs,
+					RelayAddrs:  resolvedRelayAddrs,
+					RelayMode:   resolvedRelayMode,
+					RelayProbe:  relayProbeEnabled,
+				}, svc, node, logger)
+				if err != nil {
+					return err
+				}
+				defer func() {
+					if shutdownWebConsole == nil {
+						return
+					}
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = shutdownWebConsole(shutdownCtx)
+				}()
+				logger.Info("web console server started", "listen", consoleAddr, "static_dir", expandHomePath(consoleWebDstDir))
+			}
+
 			if outputJSON {
-				_ = writeJSON(cmd.OutOrStdout(), map[string]any{
+				payload := map[string]any{
 					"status":      "ready",
 					"peer_id":     node.PeerID(),
 					"node_uuid":   identity.NodeUUID,
@@ -119,7 +162,13 @@ func newServeCmd() *cobra.Command {
 					"relay_addrs": resolvedRelayAddrs,
 					"relay_mode":  resolvedRelayMode,
 					"relay_probe": relayProbeEnabled,
-				})
+				}
+				if webConsole {
+					payload["web_console"] = true
+					payload["web_console_addr"] = consoleAddr
+					payload["console_web_dst_dir"] = expandHomePath(consoleWebDstDir)
+				}
+				_ = writeJSON(cmd.OutOrStdout(), payload)
 			} else {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "status: ready\nnode_uuid: %s\npeer_id: %s\nrelay_mode: %s\nrelay_probe: %t\n", identity.NodeUUID, node.PeerID(), resolvedRelayMode, relayProbeEnabled)
 				for _, relayAddr := range resolvedRelayAddrs {
@@ -127,6 +176,10 @@ func newServeCmd() *cobra.Command {
 				}
 				for _, addr := range node.AddrStrings() {
 					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "address: %s\n", addr)
+				}
+				if webConsole {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "web_console: http://%s\n", consoleAddr)
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "console_web_dst_dir: %s\n", expandHomePath(consoleWebDstDir))
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "waiting for incoming streams... (Ctrl+C to stop)")
 			}
@@ -138,6 +191,9 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&listenAddrs, "listen", nil, "Listen multiaddr (repeatable), default tries /ip4/0.0.0.0/udp/6372/quic-v1 and /ip4/0.0.0.0/tcp/6372, then falls back to random ports")
 	cmd.Flags().StringArrayVar(&relayAddrs, "relay", nil, "Relay multiaddr (repeatable, must end with /p2p/<relay_peer_id>)")
 	cmd.Flags().StringVar(&relayMode, "relay-mode", "auto", "Relay dial mode: auto|off|required")
+	cmd.Flags().BoolVar(&webConsole, "web-console", false, "Enable Web Console HTTP server")
+	cmd.Flags().StringVar(&webConsoleAddr, "web-console-addr", webConsoleListenDefault, "Web Console HTTP listen address")
+	cmd.Flags().StringVar(&consoleWebDstDir, "console-web-dst-dir", "", "Web Console built SPA directory")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	cmd.Flags().BoolVar(&dryRun, "dryrun", false, "Print derived addresses and exit without listening")
 	return cmd

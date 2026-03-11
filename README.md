@@ -10,6 +10,7 @@ Aqua is short for **AQUA Queries & Unifies Agents**. It's a protocol, a CLI, com
 - 🔐 End-to-end encrypted messaging.
 - 💾 Durable message storage with inbox/outbox.
 - 🌐 Circuit Relay v2 support for cross-network connectivity.
+- 🔔 Optional inbound webhook delivery for external automation.
 - 🛠️ Simple CLI for node management and messaging.
 
 ## Next Steps
@@ -31,8 +32,6 @@ Option B: install from source with Go:
 
 ```bash
 go install github.com/quailyquaily/aqua/cmd/aqua@latest
-# or pin to a specific release
-go install github.com/quailyquaily/aqua/cmd/aqua@v0.0.16
 ```
 
 ## Quick Start
@@ -71,6 +70,21 @@ Official relay endpoints:
 
 - TCP: `/dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
 - UDP (QUIC): `/dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E`
+
+## Webhook Integration
+
+If you want inbound messages to wake an external HTTP worker, run `serve` with `--webhook`:
+
+```bash
+aqua serve --webhook https://example.com/hooks/aqua
+```
+
+Behavior:
+
+- Aqua sends a `POST` request for each inbound `agent.data.push` event.
+- The JSON payload matches the `aqua serve --json` event view.
+- Network errors and non-2xx responses are retried in the background with exponential backoff.
+- Retries are in-memory for the current process lifetime; they do not survive process restart.
 
 ## Common Connection Errors and Causes
 
@@ -167,7 +181,7 @@ You can override it with:
 - `init`, `id`
 - `card export` (`--relay`, `--advertise auto|direct|relay|both`)
 - `contacts list/add/import/show/verify/del`
-- `serve` (`--relay`, `--relay-mode auto|off|required`, `--dryrun`)
+- `serve` (`--relay`, `--relay-mode auto|off|required`, `--webhook`, `--dryrun`)
 - `relay serve` (`--allow-peer`, default empty allowlist = allow all)
 - `hello`, `ping`, `capabilities`, `send` (`--relay-mode auto|off|required`)
 - `inbox list/mark-read`, `outbox list`

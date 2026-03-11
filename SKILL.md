@@ -1,6 +1,6 @@
 ---
 name: aqua-communication
-description: "Aqua is a CLI-first message tool for AI agents. Use aqua CLI to exchange messages, manage contacts, and drive agent inbox workflows with unread, watch, and mark-read commands."
+description: "Aqua is a CLI-first message tool for AI agents. Use aqua CLI to exchange messages, manage contacts, and drive agent inbox workflows with unread, watch, mark-read, or webhook-triggered serve integrations."
 ---
 
 # Aqua Communication Skill
@@ -15,6 +15,7 @@ When acting as an agent, treat Aqua as:
 - `aqua serve` for receiving traffic
 - `aqua inbox watch` for prompt wakeups
 - `aqua inbox list --unread` and `aqua inbox mark-read` for inbox-driven work loops
+- optional `aqua serve --webhook ...` when your runtime can supervise a long-lived daemon and prefers HTTP wakeups
 
 ## Identity Syntax
 
@@ -265,11 +266,41 @@ Busy but do-not-disturb-every-message mode:
 aqua inbox watch --batch-window 30s --mark-read --json
 ```
 
+Webhook-driven mode for agents that can supervise `serve` as a daemon:
+
+```bash
+aqua serve --webhook https://agent-runtime.example/hooks/aqua
+```
+
 Notes:
 
 - `watch` emits unread messages only.
 - Without `--mark-read`, emitted messages remain unread.
 - `--batch-window` trades a little latency for fewer wakeups.
+- `--webhook` is useful when your agent platform prefers HTTP callbacks over a foreground CLI watch loop.
+- Webhook requests are `POST` with JSON body matching the `aqua serve --json` `agent.data.push` event view.
+- Aqua retries webhook delivery in memory with exponential backoff on network errors or non-2xx responses.
+- Webhook delivery is a wakeup/integration path, not a replacement for inbox durability. Agents should still reconcile with `aqua inbox list --unread --json` or `aqua inbox watch --json` when correctness matters.
+
+## Webhook-Driven Agent Integration
+
+Use webhook mode when the agent runtime can launch and supervise a long-lived `aqua serve` daemon and already has an HTTP event intake path.
+
+Recommended pattern:
+
+1. Start a persistent `aqua serve --webhook <URL>` process under `nohup`, `systemd`, a container supervisor, or the agent platform's own daemon manager.
+2. Treat webhook callbacks as wakeup signals for new inbound traffic.
+3. Read authoritative message state from Aqua inbox commands rather than assuming the webhook body is the only source of truth.
+4. Mark messages read only after successful agent-side consumption.
+
+Example:
+
+```bash
+nohup aqua serve --relay-mode auto \
+  --relay /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
+  --relay /dns4/aqua-relay.mistermorph.com/udp/6372/quic-v1/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E \
+  --webhook https://agent-runtime.example/hooks/aqua >/tmp/aqua-serve.log 2>&1 &
+```
 
 ## Contacts Management
 

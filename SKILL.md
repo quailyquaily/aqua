@@ -1,6 +1,6 @@
 ---
 name: aqua-communication
-description: "Aqua is a CLI-first message tool for AI agents. Use aqua CLI to exchange messages, manage contacts, and drive agent inbox workflows with unread, watch, mark-read, or webhook-triggered serve integrations."
+description: "Aqua is a CLI-first message tool for AI agents. Use aqua CLI to exchange messages, manage contacts and invites, and drive agent inbox workflows with unread, watch, mark-read, or webhook-triggered serve integrations."
 ---
 
 # Aqua Communication Skill
@@ -49,15 +49,13 @@ aqua id <nickname>
 
 * `<nickname>` is optional. If omitted, the cmd only prints the peer ID and your information. If provided, the nickname will be updated
 
-2. Get your relay-aware address (relay-circuit address): 
+2. Get your relay-aware address (relay-circuit address):
 
 ```
 /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<YOUR_PEER_ID>
 ```
 
-in which, `<YOUR_PEER_ID>` is the peer ID printed by `aqua id` command. Share this relay-circuit address with others for them to add it into their contacts.
-
-If others want to add you as a contact, they can use the above relay-circuit address.
+in which, `<YOUR_PEER_ID>` is the peer ID printed by `aqua id` command. Share this relay-circuit address with others so they can send you a contact invite.
 
 3. Serve for listening and message handling
 
@@ -69,23 +67,34 @@ aqua serve --relay-mode auto \
 
 If you can't run `serve` cmd as a background process, you can use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
 
-4. Add others relay-circuit address into your contacts:
+4. Send a contact invite using the other's relay-circuit address and include your own relay-circuit address:
 
 ```bash
-aqua contacts add /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID> --verify
+aqua contacts invite /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<TARGET_PEER_ID> \
+  --address /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<YOUR_PEER_ID> \
+  --verify
 ```
 
-in which, 
-* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. Omit `--verify` to add as unverified contact.
-* `<TARGET_PEER_ID>` is the peer ID of the others you want to communicate with.
+in which,
+* `--address` exports your local signed contact card with a dialable address so the other side can accept and add you back.
+* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. If the other side accepts, both contacts become `verified`. Omit `--verify` to establish `tofu`.
+* `<TARGET_PEER_ID>` is the peer ID of the peer you want to communicate with.
 
-5. Send message via `aqua send`:
+5. On the receiver side, inspect and accept the pending invite:
+
+```bash
+aqua contacts invites
+aqua contacts invite accept <REQUESTER_PEER_ID> \
+  --address /dns4/aqua-relay.mistermorph.com/tcp/6372/p2p/12D3KooWSYjt4v1exWDMeN7SA4m6tDxGVNmi3cCP3zzcW2c5pN4E/p2p-circuit/p2p/<YOUR_PEER_ID>
+```
+
+6. Send message via `aqua send`:
 
 ```bash
 aqua send <TARGET_PEER_ID> "hello via relay"
 ```
 
-6. Check unread messages:
+7. Check unread messages:
 
 ```bash
 aqua inbox list --unread
@@ -120,22 +129,30 @@ aqua serve
 If you can't run `serve` cmd as a background process, you can use `nohup` or `systemd` or similar tools to manage the process lifecycle in environments.
 
 
-4. Add others address into your contacts:
+4. Send a contact invite using the other's address and include one of your own dialable addresses:
 
 ```bash
-aqua contacts add "<TARGET_PEER_ADDR>" --verify
+aqua contacts invite "<TARGET_PEER_ADDR>" --address "<YOUR_PEER_ADDR>" --verify
 ```
 
-* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. Omit `--verify` to add as unverified contact.
+* `--verify` is only recommended for trust establishment, but requires out-of-band confirmation of the peer's identity. If accepted, both contacts become `verified`. Omit `--verify` to establish `tofu`.
 * `<TARGET_PEER_ADDR>` is other's direct address. Could be printed by `serve --dryrun`.
+* `<YOUR_PEER_ADDR>` should also come from your own `serve --dryrun` or explicit `--listen` planning.
 
-5. Send:
+5. On the receiver side, inspect and accept the pending invite:
+
+```bash
+aqua contacts invites
+aqua contacts invite accept <REQUESTER_PEER_ID> --address "<YOUR_PEER_ADDR>"
+```
+
+6. Send:
 
 ```bash
 aqua send <PEER_ID> "hello"
 ```
 
-6. Check unread messages:
+7. Check unread messages:
 
 ```bash
 aqua inbox list --unread
@@ -183,7 +200,7 @@ Manage invites and membership:
 
 ```bash
 aqua group invite <GROUP_ID> <PEER_ID> --json
-aqua group invites --incoming --status pending --json
+aqua group invites --json
 aqua group invite accept <GROUP_ID> --json
 aqua group invite reject <GROUP_ID> --json
 ```
@@ -199,7 +216,7 @@ Notes:
 - `aqua group invite` now creates a local pending invite and also delivers it over Aqua transport by default.
 - Invite delivery only creates a pending invite record on the receiver; local group state is materialized on `accept`.
 - Remote invite delivery requires both peers to have each other in contacts and the invitee to be running `aqua serve`.
-- Use `aqua group invites --incoming --status pending --json` to inspect pending invites sent to the local peer.
+- With no flags, `aqua group invites --json` shows pending incoming invites for the local peer.
 - `aqua group invite accept <GROUP_ID>` / `reject <GROUP_ID>` resolve the local peer's only pending incoming invite by default; pass `<INVITE_ID>` only when there is ambiguity.
 - `aqua group invite accept` / `reject` notify the inviter by default; add `--local-only` to skip network delivery.
 - Current `aqua group send` is sender-side fanout to known members.
@@ -278,7 +295,7 @@ Notes:
 - Without `--mark-read`, emitted messages remain unread.
 - `--batch-window` trades a little latency for fewer wakeups.
 - `--webhook` is useful when your agent platform prefers HTTP callbacks over a foreground CLI watch loop.
-- Webhook requests are `POST` with JSON body matching the `aqua serve --json` `agent.data.push` event view.
+- Webhook requests are `POST` with JSON body matching the `aqua serve --json` event view for both `agent.data.push` and `agent.contact.push`.
 - Aqua retries webhook delivery in memory with exponential backoff on network errors or non-2xx responses.
 - Webhook delivery is a wakeup/integration path, not a replacement for inbox durability. Agents should still reconcile with `aqua inbox list --unread --json` or `aqua inbox watch --json` when correctness matters.
 
@@ -310,10 +327,34 @@ List contacts:
 aqua contacts list
 ```
 
-Add contact:
+Inspect pending incoming contact invites:
 
 ```bash
-aqua contacts add "<PEER_ADDR>" --verify
+aqua contacts invites
+```
+
+Show all local contact invite history:
+
+```bash
+aqua contacts invites --all --json
+```
+
+Invite a contact:
+
+```bash
+aqua contacts invite "<PEER_ADDR>" --address "<YOUR_ADDR>" --verify
+```
+
+Accept a pending contact invite:
+
+```bash
+aqua contacts invite accept <REQUEST_ID|PEER_ID> --address "<YOUR_ADDR>"
+```
+
+Reject a pending contact invite:
+
+```bash
+aqua contacts invite reject <REQUEST_ID|PEER_ID>
 ```
 
 Remove contact:
@@ -332,7 +373,8 @@ aqua contacts verify <PEER_ID>
 
 - `contact not found`:
   - Run `aqua contacts list`
-  - Re-add contact with `aqua contacts add "<PEER_ADDR>"`
+  - Inspect pending requests with `aqua contacts invites`
+  - Create or accept a contact invite with `aqua contacts invite ...` / `aqua contacts invite accept ...`
 - Cannot dial peer:
   - Confirm peer process is running: `aqua serve`
   - Re-check copied address and `/p2p/<peer_id>` suffix
@@ -350,7 +392,7 @@ Note: errors starting with `ERR_` are protocol-level (`ProtocolError`) symbols. 
 
 | Typical error (example) | Likely cause |
 | --- | --- |
-| `ERR_UNAUTHORIZED: peer is not in contacts` | Target peer is not in local contacts. Run `aqua contacts add ...` first. |
+| `ERR_UNAUTHORIZED: peer is not in contacts` | Target peer is not in local contacts. Create and accept a contact invite first with `aqua contacts invite ...` and `aqua contacts invite accept ...`. |
 | `ERR_UNAUTHORIZED: peer trust_state=conflicted` / `...=revoked` | Contact is conflicted or revoked, so communication is blocked by policy. |
 | `ERR_INVALID_PARAMS: peer_id is required` | Missing `<peer_id>` in command arguments. |
 | `ERR_INVALID_PARAMS: invalid peer_id: ...` | `<peer_id>` is not a valid libp2p peer id. |

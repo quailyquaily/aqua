@@ -44,18 +44,19 @@ From each `serve` output, copy one printed `address: ...` line:
 - `<A_ADDR>` from Machine A (ends with `/p2p/<A_PEER_ID>`)
 - `<B_ADDR>` from Machine B (ends with `/p2p/<B_PEER_ID>`)
 
-### 3) Add each other as contacts (no card exchange)
+### 3) Create and accept a contact request
 
 Machine A:
 
 ```bash
-aqua contacts add "<B_ADDR>" --verify
+aqua contacts invite "<B_ADDR>" --address "<A_ADDR>" --verify
 ```
 
 Machine B:
 
 ```bash
-aqua contacts add "<A_ADDR>" --verify
+aqua contacts invites
+aqua contacts invite accept <A_PEER_ID> --address "<B_ADDR>"
 ```
 
 ### 4) Handshake and send a message
@@ -146,18 +147,19 @@ From each `serve` output, copy one printed `address: ...` line (prefer relay-cir
 - `<A_ADDR>` from Machine A (ends with `/p2p/<A_PEER_ID>`)
 - `<B_ADDR>` from Machine B (ends with `/p2p/<B_PEER_ID>`)
 
-### 4) Add each other as contacts (relay-aware path)
+### 4) Create and accept a relay-aware contact request
 
 Machine A:
 
 ```bash
-aqua contacts add "<B_ADDR>" --verify
+aqua contacts invite "<B_ADDR>" --address "<A_ADDR>" --verify
 ```
 
 Machine B:
 
 ```bash
-aqua contacts add "<A_ADDR>" --verify
+aqua contacts invites
+aqua contacts invite accept <A_PEER_ID> --address "<B_ADDR>"
 ```
 
 ### 5) Connect and send without explicit address
@@ -283,27 +285,93 @@ Flags:
 
 - `--display-name`: optional local alias for the contact.
 
-#### `aqua contacts add`
+#### `aqua contacts invites`
 
 Usage:
 
 ```bash
-aqua contacts add <address> [--display-name <name>] [--verify] [--json]
+aqua contacts invites [--all] [--incoming] [--status <status>] [--json]
 ```
 
 Flags:
 
-- `--display-name`: optional local alias for the contact.
-- `--verify`: mark imported contact as verified immediately.
+- `--all`: show all invites instead of only pending incoming ones.
+- `--incoming`: only show incoming requests for the local peer.
+- `--status`: optional filter: `pending`, `accepted`, or `rejected`.
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- With no flags, `aqua contacts invites` shows only pending incoming invites.
+- `aqua contacts requests` remains available as an alias.
+
+#### `aqua contacts invite`
+
+Usage:
+
+```bash
+aqua contacts invite <address> [--display-name <name>] [--verify] [--address <addr>] [--listen <addr>] [--relay <addr>] [--advertise <mode>] [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Flags:
+
+- `--display-name`: preferred local alias to apply to the peer if the request is accepted.
+- `--verify`: if the request is accepted, mark both contacts as `verified` instead of `tofu`.
+- `--address`: local contact multiaddr to include in the request (repeatable).
+- `--listen`: local listen multiaddr fallback used when `--address` is empty.
+- `--relay`: relay endpoint to include in the exported local contact card (repeatable).
+- `--advertise`: local address advertise mode: `auto`, `direct`, `relay`, or `both`.
+- `--relay-mode`: dial mode used to reach the peer: `auto`, `off`, or `required`.
+- `--local-only`: store the outgoing request locally without sending it.
 - `--json`: print structured JSON output.
 
 Behavior notes:
 
 - `<address>` must end with `/p2p/<peer_id>`.
-- Requires peer support for RPC method `agent.card.get`.
-- Does not require prior contact import for the target peer.
-- Without `--verify`, imported contact starts as unverified trust state (`tofu` by default).
-- Remote card `nickname` is imported into contact metadata.
+- Sends a pending contact request; it does not immediately import the peer into local contacts.
+- Exports the local peer's signed contact card from `--address` / `--listen` / `--relay`.
+- Requires peer support for RPC method `agent.contact.push`.
+- When the peer accepts, both sides import each other's contact cards.
+- `aqua contacts add` remains available as an alias.
+
+#### `aqua contacts invite accept`
+
+Usage:
+
+```bash
+aqua contacts invite accept <request_id|peer_id> [--display-name <name>] [--address <addr>] [--listen <addr>] [--relay <addr>] [--advertise <mode>] [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Flags:
+
+- `--display-name`: optional local alias for the accepted contact.
+- `--address`: local contact multiaddr to include in the accept response (repeatable).
+- `--listen`: local listen multiaddr fallback used when `--address` is empty.
+- `--relay`: relay endpoint to include in the exported local contact card (repeatable).
+- `--advertise`: local address advertise mode: `auto`, `direct`, `relay`, or `both`.
+- `--relay-mode`: dial mode used to reach the requester: `auto`, `off`, or `required`.
+- `--local-only`: resolve the request locally without sending the accept response.
+- `--json`: print structured JSON output.
+
+Behavior notes:
+
+- Accepting imports the requester's contact card locally.
+- If the original request used `--verify`, the imported contact is marked `verified`.
+- The accept response carries the accepter's contact card back to the requester.
+
+#### `aqua contacts invite reject`
+
+Usage:
+
+```bash
+aqua contacts invite reject <request_id|peer_id> [--relay-mode <mode>] [--local-only] [--json]
+```
+
+Flags:
+
+- `--relay-mode`: dial mode used to reach the requester: `auto`, `off`, or `required`.
+- `--local-only`: resolve the request locally without sending the reject response.
+- `--json`: print structured JSON output.
 
 #### `aqua contacts del`
 
@@ -361,7 +429,7 @@ Flags:
   - fallback on bind failure: random ports (`/udp/0`, `/tcp/0`, `/tcp/0/ws`)
 - `--relay` (repeatable): relay endpoints to reserve.
 - `--relay-mode`: `auto|off|required` (default `auto`).
-- `--webhook`: POST every inbound `agent.data.push` event to the given HTTP(S) webhook.
+- `--webhook`: POST every inbound `serve --json` event to the given HTTP(S) webhook.
 - `--dryrun`: print derived advertise addresses and exit without starting listeners.
 - `--json`: print ready/event output as JSON.
 
@@ -369,7 +437,8 @@ Behavior notes:
 
 - For wildcard listen addresses (`0.0.0.0` or `::`), Aqua auto-expands printed addresses with detected local interface IPs (for example Tailscale).
 - With configured `--relay`, Aqua attempts Circuit Relay v2 reservation at startup.
-- `--webhook` sends the same JSON event view as `serve --json` for each inbound message.
+- `--webhook` sends the same JSON event view as `serve --json` for each inbound event.
+- This includes inbound `agent.data.push` messages and inbound `agent.contact.push` contact invite/accept/reject control events.
 - Webhook delivery treats non-2xx responses and transport errors as failures, then retries with exponentially increasing delay until success or process exit.
 - `--json` includes relay events like `relay.reservation.ok`, `relay.path.selected`, and `relay.fallback`.
 - With `--dryrun`, Aqua does not create libp2p listeners and prints address planning output only (useful for CLI/programmatic address discovery).
@@ -622,27 +691,32 @@ aqua group show <group_id> [--json]
 Behavior notes:
 
 - `group show` is for accepted local group state.
-- Pending incoming invites are inspected with `aqua group invites --incoming`.
+- Pending incoming invites are inspected with `aqua group invites`.
 
 #### `aqua group invites`
 
 Usage:
 
 ```bash
-aqua group invites [--group-id <group_id>] [--status <status>] [--incoming] [--json]
+aqua group invites [--group-id <group_id>] [--all] [--status <status>] [--incoming] [--json]
 ```
 
 Flags:
 
 - `--group-id`: filter by group.
+- `--all`: show all invites instead of only pending incoming ones.
 - `--status`: filter by `pending|accepted|rejected|expired`.
 - `--incoming`: only show invites where local peer is the invitee.
 - `--json`: print structured JSON output.
 
+Behavior notes:
+
+- With no flags, `aqua group invites` shows only pending incoming invites.
+
 Example:
 
 ```bash
-aqua group invites --incoming --status pending --json
+aqua group invites --json
 ```
 
 #### `aqua group invite`

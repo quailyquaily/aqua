@@ -18,7 +18,7 @@
 - 当前仓库没有 `aqua serve --web-console`、`--web-console-addr`、`--web-console-token`、`--console-web-dst-dir`，也没有内置 HTTP/REST/WebSocket 控制台。
 - 当前 `aqua serve` 是前台长运行的 libp2p 节点进程。若未来 Web Console 直接内嵌在这个进程中，GUI 不能在 v1 中提供“停止当前进程”的按钮，否则会把自己一起停掉。
 - 当前“实时能力”来自两类现有语义：`aqua serve --json` 输出事件，以及 `aqua inbox watch` 对本地 inbox 的轮询等待。WebSocket 推送是合理目标，但仍需新增实现。
-- 当前 `contacts add <address>` 是联网操作：它会拨号到目标地址拉取 signed contact card，然后导入本地；这不是纯本地写入。
+- 当前 `contacts invite <address>` 会创建并发送联系人邀请；接受方本地 `accept` 后，双方才互相导入 contact card。
 - 当前群消息不是单独的原生消息模型，而是以 `group.message.v1` topic 进入 inbox/outbox；payload 是 JSON envelope，前端需要解析后再聚合成群会话。
 - 当前 `group send` 没有 `reply_to`/`session_id` 语义；因此“回复消息”在 v1 只适用于点对点消息，不适用于群消息。
 - 当前 `aqua card export` 直接输出 signed contact card JSON，本身不是 `--json` 包装接口。
@@ -63,7 +63,7 @@
 | --- | --- |
 | 身份 | `aqua init`、`aqua id [nickname]` |
 | Contact Card | `aqua card export` |
-| 联系人 | `aqua contacts list/add/import/show/verify/del` |
+| 联系人 | `aqua contacts list/invites/invite/import/show/verify/del` |
 | 点对点消息 | `aqua send`、`aqua inbox list/watch/mark-read`、`aqua outbox list` |
 | 群组 | `aqua group create/list/show/invite/invites/invite accept/invite reject/send` |
 | 节点运行 | `aqua serve` |
@@ -238,7 +238,7 @@ Aqua Web GUI
 
 待处理邀请：
 
-- 来自 `group invites --incoming --status pending` 对应的 API。
+- 来自默认 `group invites`（pending incoming）对应的 API。
 - 在会话列表顶部作为单独分区呈现，而不是伪装成普通消息会话。
 
 #### 6.1.3 会话列表字段
@@ -467,7 +467,9 @@ API 错误统一展示：
 | GET | `/node/runtime` | 获取当前运行时信息 | `serve` 运行态 + relay 事件状态 |
 | GET | `/node/card` | 返回 signed contact card JSON | `aqua card export` |
 | GET | `/contacts` | 联系人列表 | `aqua contacts list --json` |
-| POST | `/contacts/fetch` | 通过 address 拉取并导入 contact card | `aqua contacts add` |
+| POST | `/contacts/invites` | 创建联系人邀请 | `aqua contacts invite` |
+| POST | `/contacts/invites/:request_id/accept` | 接受联系人邀请 | `aqua contacts invite accept` |
+| POST | `/contacts/invites/:request_id/reject` | 拒绝联系人邀请 | `aqua contacts invite reject` |
 | POST | `/contacts/import` | 导入已给定的 contact card JSON | `aqua contacts import` |
 | GET | `/contacts/:peer_id` | 联系人详情 | `aqua contacts show --json` |
 | DELETE | `/contacts/:peer_id` | 删除联系人 | `aqua contacts del` |
@@ -492,7 +494,7 @@ API 错误统一展示：
 - 返回值应与 `aqua card export` 的 signed contact card JSON 一致。
 - 不额外包一层 `{"data": ...}` 不是必须，但全局 API 若采用统一 envelope，也应保留原始 card 结构完整性。
 
-`POST /contacts/fetch`
+`POST /contacts/invites`
 
 - 请求体至少包含：
   - `address`
@@ -762,7 +764,7 @@ http://127.0.0.1:8089
 | Group E2EE 未实现 | 不能在 GUI 中暗示群消息已具备完整 E2EE 保证。 |
 | Durable retransmission 未实现 | 发送失败后需要明确提示用户重试。 |
 | `group send` 是 sender-side fanout | 成员离线时消息可能失败，UI 必须展示部分失败结果。 |
-| `contacts add` 依赖在线拉卡片 | 添加联系人时目标 peer 必须可达。 |
+| `contacts invite` 需要目标 peer 在线 | 创建联系人邀请时目标 peer 必须可达。 |
 | 当前无 config file 模型 | `Settings` 在 v1 不应假设存在可写持久配置。 |
 | 当前无 supervisor | GUI 内不应承诺进程 start/stop。 |
 | Multiaddr 校验严格 | 前端必须在提交前校验 `/p2p/<peer_id>` 终端段。 |

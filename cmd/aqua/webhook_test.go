@@ -103,7 +103,7 @@ func TestDataPushWebhookDispatcherRetriesUntilSuccess(t *testing.T) {
 		ReceivedAt:     time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC),
 		Deduped:        false,
 	}
-	dispatcher.enqueue(event)
+	dispatcher.enqueueDataPush(event)
 
 	select {
 	case got := <-delivered:
@@ -127,5 +127,59 @@ func TestDataPushWebhookDispatcherRetriesUntilSuccess(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for webhook delivery")
+	}
+}
+
+func TestDataPushWebhookDispatcherDeliversContactControlEvent(t *testing.T) {
+	delivered := make(chan map[string]any, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		delivered <- payload
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dispatcher, err := newDataPushWebhookDispatcher(context.Background(), server.URL, logger)
+	if err != nil {
+		t.Fatalf("newDataPushWebhookDispatcher() error = %v", err)
+	}
+	defer dispatcher.close()
+
+	receivedAt := time.Date(2026, 3, 12, 12, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 3, 12, 11, 59, 0, 0, time.UTC)
+	dispatcher.enqueueContactControl(aqua.ContactControlEvent{
+		FromPeerID:     "peer-contact-1",
+		ToPeerID:       "peer-contact-2",
+		Action:         aqua.ContactControlActionRequest,
+		RequestID:      "creq_123",
+		VerifyOnAccept: true,
+		CreatedAt:      &createdAt,
+		ReceivedAt:     receivedAt,
+	})
+
+	select {
+	case got := <-delivered:
+		if got["event"] != "agent.contact.push" {
+			t.Fatalf("event = %v, want agent.contact.push", got["event"])
+		}
+		if got["action"] != string(aqua.ContactControlActionRequest) {
+			t.Fatalf("action = %v, want %q", got["action"], aqua.ContactControlActionRequest)
+		}
+		if got["request_id"] != "creq_123" {
+			t.Fatalf("request_id = %v, want creq_123", got["request_id"])
+		}
+		if got["from_peer_id"] != "peer-contact-1" {
+			t.Fatalf("from_peer_id = %v, want peer-contact-1", got["from_peer_id"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for contact control webhook delivery")
 	}
 }

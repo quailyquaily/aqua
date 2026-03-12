@@ -14,6 +14,7 @@ var allowedMethodsV1 = []string{
 	"agent.ping",
 	"agent.capabilities.get",
 	"agent.card.get",
+	"agent.contact.push",
 	"agent.data.push",
 }
 
@@ -72,6 +73,10 @@ type rpcCardGetParams struct {
 
 type rpcCardGetResult struct {
 	ContactCardJSON string `json:"contact_card_json"`
+}
+
+type rpcContactControlResult struct {
+	Accepted bool `json:"accepted"`
 }
 
 func parseRPCRequest(raw []byte) (rpcRequest, error) {

@@ -12,6 +12,7 @@ RPC method allowlist:
 - `agent.ping`
 - `agent.capabilities.get`
 - `agent.card.get`
+- `agent.contact.push`
 - `agent.data.push`
 
 ## 2. Hello Negotiation Message
@@ -70,9 +71,67 @@ Error response example:
 }
 ```
 
-## 4. `agent.data.push` Wire Message
+## 4. `agent.contact.push` Wire Message
 
-### 4.1 Request Params
+This sessionless RPC is used for mutual contact exchange before two peers are in each other's contacts.
+
+Supported actions:
+
+- `contact.request`
+- `contact.request.accept`
+- `contact.request.reject`
+
+Request example:
+
+```json
+{
+  "version": 1,
+  "action": "contact.request",
+  "request_id": "creq_019c...",
+  "from_peer_id": "12D3KooW...",
+  "to_peer_id": "12D3KooX...",
+  "verify_on_accept": true,
+  "created_at": "2026-03-12T17:02:00Z",
+  "contact_card": {
+    "payload": {},
+    "sig_alg": "ed25519",
+    "sig_format": "jcs-rfc8785-detached",
+    "sig": "..."
+  }
+}
+```
+
+Accept example:
+
+```json
+{
+  "version": 1,
+  "action": "contact.request.accept",
+  "request_id": "creq_019c...",
+  "from_peer_id": "12D3KooX...",
+  "to_peer_id": "12D3KooW...",
+  "verify_on_accept": true,
+  "responded_at": "2026-03-12T17:05:00Z",
+  "contact_card": {
+    "payload": {},
+    "sig_alg": "ed25519",
+    "sig_format": "jcs-rfc8785-detached",
+    "sig": "..."
+  }
+}
+```
+
+Success result:
+
+```json
+{
+  "accepted": true
+}
+```
+
+## 5. `agent.data.push` Wire Message
+
+### 5.1 Request Params
 
 ```json
 {
@@ -96,7 +155,7 @@ Field notes:
 
 Note: `aqua send` no longer applies a second JSON envelope to payload content. It sends message bytes directly.
 
-### 4.2 Success Result
+### 5.2 Success Result
 
 ```json
 {
@@ -105,7 +164,7 @@ Note: `aqua send` no longer applies a second JSON envelope to payload content. I
 }
 ```
 
-## 5. `aqua send` to Wire Mapping
+## 6. `aqua send` to Wire Mapping
 
 Command:
 
@@ -121,16 +180,18 @@ Key mapping:
 - `idempotency_key` is auto-generated when omitted (`msg:...`)
 - `session_id` is auto-generated UUIDv7 when omitted
 
-## 6. `serve --json` Output Is Not Raw Wire Data
+## 7. `serve --json` Output Is Not Raw Wire Data
 
 `aqua serve --json` prints a local event view, with fields such as:
 
 - `event`
 - `from_peer_id`
-- `topic`
+- `topic` / `action`
 - `content_type`
 - `payload_base64`
 - `payload_text`
 - `received_at`
+
+For example, inbound messages emit `event = "agent.data.push"` and contact invite control emits `event = "agent.contact.push"`.
 
 This is not the original JSON-RPC wire payload from the remote peer. It is a local structured event after decode and handling.

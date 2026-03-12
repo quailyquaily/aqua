@@ -58,6 +58,7 @@ type NodeOptions struct {
 	RelayProbeEnabled  bool
 	Logger             *slog.Logger
 	OnDataPush         func(event DataPushEvent)
+	OnContactControl   func(event ContactControlEvent)
 	OnRelayEvent       func(event RelayEvent)
 }
 
@@ -359,6 +360,33 @@ func (n *Node) GetContactCard(ctx context.Context, peerID string, addresses []st
 		return nil, WrapProtocolError(ErrInvalidParams, "empty contact_card_json")
 	}
 	return []byte(trimmed), nil
+}
+
+func (n *Node) PushContactControl(ctx context.Context, peerID string, addresses []string, raw json.RawMessage) error {
+	expectedPeerID, dialAddresses, err := resolveExplicitDialTarget(peerID, addresses)
+	if err != nil {
+		return err
+	}
+	resultRaw, err := n.callRPCResolved(
+		ctx,
+		expectedPeerID,
+		dialAddresses,
+		"agent.contact.push",
+		json.RawMessage(append([]byte(nil), raw...)),
+		false,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+	var result rpcContactControlResult
+	if err := decodeRPCJSON(resultRaw, &result); err != nil {
+		return err
+	}
+	if !result.Accepted {
+		return fmt.Errorf("contact control rejected")
+	}
+	return nil
 }
 
 func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, req DataPushRequest, notification bool) (DataPushResult, error) {
@@ -948,7 +976,7 @@ func shouldRetryAfterUnsupported(symbol string, retried bool) bool {
 
 func rpcMethodRequiresSession(method string) bool {
 	switch strings.TrimSpace(method) {
-	case "agent.card.get":
+	case "agent.card.get", "agent.contact.push":
 		return false
 	default:
 		return true
@@ -957,7 +985,7 @@ func rpcMethodRequiresSession(method string) bool {
 
 func rpcMethodRequiresAuthorizedPeer(method string) bool {
 	switch strings.TrimSpace(method) {
-	case "agent.card.get":
+	case "agent.card.get", "agent.contact.push":
 		return false
 	default:
 		return true
@@ -1165,6 +1193,25 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 			return nil, symbol, err.Error()
 		}
 		return rpcCardGetResult{ContactCardJSON: strings.TrimSpace(string(rawCard))}, "", ""
+	case "agent.contact.push":
+		if len(strings.TrimSpace(string(req.Params))) == 0 {
+			return nil, ErrInvalidParamsSymbol, "params is required"
+		}
+		now := time.Now().UTC()
+		if err := n.applyIncomingContactControl(fromPeerID, req.Params, now); err != nil {
+			symbol := SymbolOf(err)
+			if strings.TrimSpace(symbol) == "" {
+				symbol = ErrInvalidParamsSymbol
+			}
+			return nil, symbol, err.Error()
+		}
+		if n.opts.OnContactControl != nil {
+			event, err := DecodeContactControlEvent(fromPeerID, req.Params, now)
+			if err == nil {
+				n.opts.OnContactControl(event)
+			}
+		}
+		return rpcContactControlResult{Accepted: true}, "", ""
 	case "agent.data.push":
 		var params rpcDataPushParams
 		if err := decodeRPCParams(req.Params, &params); err != nil {
@@ -1271,6 +1318,15 @@ func (n *Node) applyIncomingTopicSideEffects(fromPeerID string, topic string, pa
 	storeCtx, cancelStore := n.storeContext(context.Background())
 	defer cancelStore()
 	return n.svc.ApplyInboundGroupControl(storeCtx, fromPeerID, payloadBytes, now)
+}
+
+func (n *Node) applyIncomingContactControl(fromPeerID string, raw []byte, now time.Time) error {
+	if n == nil {
+		return nil
+	}
+	storeCtx, cancelStore := n.storeContext(context.Background())
+	defer cancelStore()
+	return n.svc.ApplyInboundContactControl(storeCtx, fromPeerID, raw, now)
 }
 
 func (n *Node) writeRPCSuccess(stream network.Stream, id any, result any) (int, error) {

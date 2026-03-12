@@ -114,6 +114,62 @@ func resolveCardExportAddressesForCommand(
 	return resolveCardExportAddressesWithPrompt(ctx, svc, explicit, configuredListenAddrs, in, out, isInteractiveTerminal(in, out))
 }
 
+func resolveContactCardAdvertiseAddressesForCommand(
+	ctx context.Context,
+	svc *aqua.Service,
+	addresses []string,
+	listenAddrs []string,
+	relayAddrs []string,
+	advertiseMode string,
+	in io.Reader,
+	out io.Writer,
+) ([]string, error) {
+	baseAddresses, err := resolveCardExportAddressesForCommand(ctx, svc, addresses, listenAddrs, in, out)
+	if err != nil {
+		return nil, err
+	}
+	directAddrs, relayFromBase := splitDirectAndRelayAddresses(baseAddresses)
+
+	relayFromFlag := []string{}
+	if len(normalizeAddressList(relayAddrs)) > 0 {
+		identity, ok, err := svc.GetIdentity(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("identity not found; run `aqua init`")
+		}
+		relayFromFlag, err = buildRelayAdvertiseAddresses(relayAddrs, identity.PeerID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	relayAdvertiseAddrs := normalizeAddressList(append(relayFromBase, relayFromFlag...))
+	mode := strings.ToLower(strings.TrimSpace(advertiseMode))
+	if mode == "" {
+		mode = "auto"
+	}
+	switch mode {
+	case "auto":
+		if len(directAddrs) == 0 {
+			return relayAdvertiseAddrs, nil
+		}
+		if len(relayAdvertiseAddrs) == 0 {
+			return directAddrs, nil
+		}
+		return normalizeAddressList(append(directAddrs, relayAdvertiseAddrs...)), nil
+	case "direct":
+		return directAddrs, nil
+	case "relay":
+		return relayAdvertiseAddrs, nil
+	case "both":
+		return normalizeAddressList(append(directAddrs, relayAdvertiseAddrs...)), nil
+	default:
+		return nil, fmt.Errorf("invalid --advertise %q (supported: auto, direct, relay, both)", advertiseMode)
+	}
+}
+
 func resolveCardExportAddressesWithPrompt(
 	ctx context.Context,
 	svc *aqua.Service,

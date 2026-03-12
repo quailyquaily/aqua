@@ -7,6 +7,7 @@ Aqua is short for **AQUA Queries & Unifies Agents**. It's a protocol, a CLI, com
 ## Features
 
 - 🤝 Peer-to-peer agent communication with identity verification.
+- 🤝 Mutual contact requests with explicit accept/reject flow.
 - 🔐 End-to-end encrypted messaging.
 - 💾 Durable message storage with inbox/outbox.
 - 🌐 Circuit Relay v2 support for cross-network connectivity.
@@ -40,7 +41,8 @@ go install github.com/quailyquaily/aqua/cmd/aqua@latest
 | --- | --- |
 | `aqua id alice`, note `<A_PEER_ID>` | `aqua id bob`, note `<B_PEER_ID>` |
 | `aqua serve`<br>copy one `address: ...` as `<A_ADDR>`  | `aqua serve`<br>copy one `address: ...` as `<B_ADDR>` |
-| `aqua contacts add "<B_ADDR>" --verify` | `aqua contacts add "<A_ADDR>" --verify` |
+| `aqua contacts invite "<B_ADDR>" --address "<A_ADDR>" --verify` | `aqua contacts invites` |
+| `# wait for accept` | `aqua contacts invite accept <A_PEER_ID> --address "<B_ADDR>"` |
 | `aqua send <B_PEER_ID> "hello from A"` | `aqua send <A_PEER_ID> "hello from B"` |
 | `aqua inbox list --unread --limit 10` | `aqua inbox list --unread --limit 10` |
 
@@ -59,8 +61,12 @@ aqua serve --relay-mode auto \
 
 # 3) From `aqua serve` output, copy your relay-circuit address:
 # /dns4/<relay-host>/tcp/6372/p2p/<relay_peer_id>/p2p-circuit/p2p/<your_peer_id>
-# Share it with your peer and add peer's relay-circuit address:
-aqua contacts add "<peer_relay_circuit_addr>" --verify
+# Share it with your peer and request contact exchange:
+aqua contacts invite "<peer_relay_circuit_addr>" --address "<your_relay_circuit_addr>" --verify
+
+# On the peer side, inspect and accept:
+aqua contacts invites
+aqua contacts invite accept <requester_peer_id> --address "<your_relay_circuit_addr>"
 
 # 4) Handshake and send
 aqua send <peer_id> "hello via relay"
@@ -81,8 +87,8 @@ aqua serve --webhook https://example.com/hooks/aqua
 
 Behavior:
 
-- Aqua sends a `POST` request for each inbound `agent.data.push` event.
-- The JSON payload matches the `aqua serve --json` event view.
+- Aqua sends a `POST` request for each inbound `aqua serve --json` event.
+- This now includes both `agent.data.push` and `agent.contact.push`.
 - Network errors and non-2xx responses are retried in the background with exponential backoff.
 - Retries are in-memory for the current process lifetime; they do not survive process restart.
 
@@ -95,7 +101,7 @@ Note: errors starting with `ERR_` are protocol-level (`ProtocolError`) symbols. 
 
 | Typical error (example) | Likely cause |
 | --- | --- |
-| `ERR_UNAUTHORIZED: peer is not in contacts` | Target peer is not in local contacts. Run `aqua contacts add ...` first. |
+| `ERR_UNAUTHORIZED: peer is not in contacts` | Target peer is not in local contacts. Create and accept a contact invite first with `aqua contacts invite ...` and `aqua contacts invite accept ...`. |
 | `ERR_UNAUTHORIZED: peer trust_state=conflicted` / `...=revoked` | Contact is conflicted or revoked, so communication is blocked by policy. |
 | `ERR_INVALID_PARAMS: peer_id is required` | Missing `<peer_id>` in command arguments. |
 | `ERR_INVALID_PARAMS: invalid peer_id: ...` | `<peer_id>` is not a valid libp2p peer id. |
@@ -180,7 +186,7 @@ You can override it with:
 
 - `init`, `id`
 - `card export` (`--relay`, `--advertise auto|direct|relay|both`)
-- `contacts list/add/import/show/verify/del`
+- `contacts list/invites/invite/import/show/verify/del` (`contacts invite accept|reject`, `add/requests` kept as aliases)
 - `serve` (`--relay`, `--relay-mode auto|off|required`, `--webhook`, `--dryrun`)
 - `relay serve` (`--allow-peer`, default empty allowlist = allow all)
 - `hello`, `ping`, `capabilities`, `send` (`--relay-mode auto|off|required`)

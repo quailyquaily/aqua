@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	contactsFileVersion       = 1
-	dedupeFileVersion         = 1
-	inboxReadStateFileVersion = 1
-	groupsFileVersion         = 1
-	groupRolesFileVersion     = 1
-	groupMembersFileVersion   = 1
-	groupInvitesFileVersion   = 1
+	contactsFileVersion        = 1
+	contactRequestsFileVersion = 1
+	dedupeFileVersion          = 1
+	inboxReadStateFileVersion  = 1
+	groupsFileVersion          = 1
+	groupRolesFileVersion      = 1
+	groupMembersFileVersion    = 1
+	groupInvitesFileVersion    = 1
 )
 
 type FileStore struct {
@@ -35,6 +36,11 @@ type FileStore struct {
 type contactsFile struct {
 	Version  int       `json:"version"`
 	Contacts []Contact `json:"contacts"`
+}
+
+type contactRequestsFile struct {
+	Version  int              `json:"version"`
+	Requests []ContactRequest `json:"requests"`
 }
 
 type dedupeFile struct {
@@ -199,6 +205,39 @@ func (s *FileStore) ListContacts(ctx context.Context) ([]Contact, error) {
 	out := make([]Contact, len(contacts))
 	copy(out, contacts)
 	return out, nil
+}
+
+func (s *FileStore) GetContactRequests(ctx context.Context) ([]ContactRequest, error) {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	requests, err := s.loadContactRequestsLocked()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(requests, func(i, j int) bool {
+		if requests[i].CreatedAt.Equal(requests[j].CreatedAt) {
+			return strings.TrimSpace(requests[i].RequestID) < strings.TrimSpace(requests[j].RequestID)
+		}
+		return requests[i].CreatedAt.After(requests[j].CreatedAt)
+	})
+	out := make([]ContactRequest, len(requests))
+	copy(out, requests)
+	return out, nil
+}
+
+func (s *FileStore) PutContactRequests(ctx context.Context, requests []ContactRequest) error {
+	if err := s.ensureNotCanceled(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.withStateLock(ctx, func() error {
+		return s.saveContactRequestsLocked(requests)
+	})
 }
 
 func (s *FileStore) DeleteContactByPeerID(ctx context.Context, peerID string) (bool, error) {
@@ -849,6 +888,26 @@ func (s *FileStore) loadContactsLocked() ([]Contact, error) {
 	return out, nil
 }
 
+func (s *FileStore) loadContactRequestsLocked() ([]ContactRequest, error) {
+	var file contactRequestsFile
+	ok, err := s.readJSONFile(s.contactRequestsPath(), &file)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []ContactRequest{}, nil
+	}
+	out := make([]ContactRequest, 0, len(file.Requests))
+	for _, request := range file.Requests {
+		request = normalizeContactRequest(request)
+		if request.RequestID == "" || request.InitiatorPeerID == "" || request.RecipientPeerID == "" {
+			continue
+		}
+		out = append(out, request)
+	}
+	return out, nil
+}
+
 func (s *FileStore) loadGroupsLocked() ([]Group, error) {
 	var file groupsFile
 	ok, err := s.readJSONFile(s.groupsPath(), &file)
@@ -1035,6 +1094,30 @@ func (s *FileStore) saveContactsLocked(contacts []Contact) error {
 		Contacts: contacts,
 	}
 	return s.writeJSONFileAtomic(s.contactsPath(), file, 0o600)
+}
+
+func (s *FileStore) saveContactRequestsLocked(requests []ContactRequest) error {
+	normalized := make([]ContactRequest, 0, len(requests))
+	for _, request := range requests {
+		request = normalizeContactRequest(request)
+		if request.RequestID == "" || request.InitiatorPeerID == "" || request.RecipientPeerID == "" {
+			continue
+		}
+		normalized = append(normalized, request)
+	}
+	sort.Slice(normalized, func(i, j int) bool {
+		left := strings.TrimSpace(normalized[i].RequestID)
+		right := strings.TrimSpace(normalized[j].RequestID)
+		if left == right {
+			return normalized[i].CreatedAt.Before(normalized[j].CreatedAt)
+		}
+		return left < right
+	})
+	file := contactRequestsFile{
+		Version:  contactRequestsFileVersion,
+		Requests: normalized,
+	}
+	return s.writeJSONFileAtomic(s.contactRequestsPath(), file, 0o600)
 }
 
 func (s *FileStore) loadDedupeRecordsLocked() ([]DedupeRecord, error) {
@@ -1287,6 +1370,10 @@ func (s *FileStore) identityPath() string {
 
 func (s *FileStore) contactsPath() string {
 	return filepath.Join(s.rootPath(), "contacts.json")
+}
+
+func (s *FileStore) contactRequestsPath() string {
+	return filepath.Join(s.rootPath(), "contact_requests.json")
 }
 
 func (s *FileStore) dedupePath() string {

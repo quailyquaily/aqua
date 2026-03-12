@@ -141,7 +141,7 @@ func TestGroupCLI_InvitesJSON(t *testing.T) {
 		t.Fatalf("decode group invite json error = %v, stdout=%s", err, stdoutInvite)
 	}
 
-	stdoutInvites, stderrInvites, err := executeCLI(t, "--dir", dir, "group", "invites", "--status", "pending", "--json")
+	stdoutInvites, stderrInvites, err := executeCLI(t, "--dir", dir, "group", "invites", "--all", "--status", "pending", "--json")
 	if err != nil {
 		t.Fatalf("group invites --json error = %v, stderr=%s", err, stderrInvites)
 	}
@@ -215,6 +215,61 @@ func TestGroupCLI_InviteAcceptByGroupIDJSON(t *testing.T) {
 	}
 	if accepted.Group.LocalRole != aqua.GroupRoleMember {
 		t.Fatalf("accepted local role mismatch: got %s want %s", accepted.Group.LocalRole, aqua.GroupRoleMember)
+	}
+}
+
+func TestGroupCLI_InvitesDefaultsToPendingIncoming(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if _, stderr, err := executeCLI(t, "--dir", dir, "init", "--json"); err != nil {
+		t.Fatalf("init --json error = %v, stderr=%s", err, stderr)
+	}
+
+	ctx := context.Background()
+	localSvc := aqua.NewService(aqua.NewFileStore(dir))
+	localIdentity, ok, err := localSvc.GetIdentity(ctx)
+	if err != nil {
+		t.Fatalf("GetIdentity(local) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected local identity to exist after init")
+	}
+
+	remoteSvc := aqua.NewService(aqua.NewFileStore(t.TempDir()))
+	remoteIdentity, _, err := remoteSvc.EnsureIdentity(ctx, time.Date(2026, 3, 12, 18, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("EnsureIdentity(remote) error = %v", err)
+	}
+	group, err := remoteSvc.CreateGroup(ctx, time.Date(2026, 3, 12, 18, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("CreateGroup(remote) error = %v", err)
+	}
+	invite, err := remoteSvc.InviteGroupMember(ctx, group.GroupID, localIdentity.PeerID, time.Date(2026, 3, 12, 18, 2, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("InviteGroupMember(remote) error = %v", err)
+	}
+	payloadRaw, err := aqua.EncodeGroupInviteControlMessage(invite)
+	if err != nil {
+		t.Fatalf("EncodeGroupInviteControlMessage() error = %v", err)
+	}
+	if err := localSvc.ApplyInboundGroupControl(ctx, remoteIdentity.PeerID, payloadRaw, time.Date(2026, 3, 12, 18, 3, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("ApplyInboundGroupControl(local) error = %v", err)
+	}
+
+	stdoutInvites, stderrInvites, err := executeCLI(t, "--dir", dir, "group", "invites", "--json")
+	if err != nil {
+		t.Fatalf("group invites --json error = %v, stderr=%s", err, stderrInvites)
+	}
+	var invites []aqua.GroupInvite
+	if err := json.Unmarshal([]byte(stdoutInvites), &invites); err != nil {
+		t.Fatalf("decode group invites json error = %v, stdout=%s", err, stdoutInvites)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("pending incoming invite count mismatch: got %d want 1", len(invites))
+	}
+	if invites[0].InviteID != invite.InviteID {
+		t.Fatalf("invite id mismatch: got %q want %q", invites[0].InviteID, invite.InviteID)
 	}
 }
 

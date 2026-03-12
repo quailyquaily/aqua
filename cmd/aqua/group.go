@@ -189,6 +189,7 @@ func newGroupInvitesCmd() *cobra.Command {
 	var groupID string
 	var status string
 	var incomingOnly bool
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "invites",
 		Short: "List local group invites",
@@ -199,8 +200,21 @@ func newGroupInvitesCmd() *cobra.Command {
 				return err
 			}
 
+			effectiveIncomingOnly := true
+			effectiveStatus := "pending"
+			if all {
+				effectiveIncomingOnly = false
+				effectiveStatus = ""
+			}
+			if cmd.Flags().Changed("incoming") {
+				effectiveIncomingOnly = incomingOnly
+			}
+			if cmd.Flags().Changed("status") {
+				effectiveStatus = status
+			}
+
 			var localPeerID string
-			if incomingOnly {
+			if effectiveIncomingOnly {
 				identity, ok, err := svc.GetIdentity(cmd.Context())
 				if err != nil {
 					return err
@@ -212,8 +226,8 @@ func newGroupInvitesCmd() *cobra.Command {
 			}
 
 			parsedStatus := aqua.GroupInviteStatus("")
-			if strings.TrimSpace(status) != "" {
-				parsedStatus, err = aqua.ParseGroupInviteStatus(status)
+			if strings.TrimSpace(effectiveStatus) != "" {
+				parsedStatus, err = aqua.ParseGroupInviteStatus(effectiveStatus)
 				if err != nil {
 					return err
 				}
@@ -224,7 +238,7 @@ func newGroupInvitesCmd() *cobra.Command {
 				if parsedStatus != "" && invite.Status != parsedStatus {
 					continue
 				}
-				if incomingOnly && strings.TrimSpace(invite.InviteePeerID) != localPeerID {
+				if effectiveIncomingOnly && strings.TrimSpace(invite.InviteePeerID) != localPeerID {
 					continue
 				}
 				filtered = append(filtered, invite)
@@ -260,6 +274,7 @@ func newGroupInvitesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&groupID, "group-id", "", "Filter by group id")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by invite status: pending|accepted|rejected|expired")
 	cmd.Flags().BoolVar(&incomingOnly, "incoming", false, "Only show invites where local peer is invitee")
+	cmd.Flags().BoolVar(&all, "all", false, "Show all invites instead of only pending incoming ones")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print as JSON")
 	return cmd
 }

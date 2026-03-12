@@ -46,6 +46,23 @@ func printDataPushEvent(cmd *cobra.Command, event aqua.DataPushEvent, outputJSON
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "payload(bytes): %d\n", len(event.PayloadBytes))
 }
 
+func printContactControlEvent(cmd *cobra.Command, event aqua.ContactControlEvent, outputJSON bool) {
+	if outputJSON {
+		_ = writeJSON(cmd.OutOrStdout(), contactControlEventView(event))
+		return
+	}
+
+	_, _ = fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"incoming_contact: action=%s from=%s to=%s request_id=%s verify_on_accept=%t\n",
+		event.Action,
+		event.FromPeerID,
+		event.ToPeerID,
+		event.RequestID,
+		event.VerifyOnAccept,
+	)
+}
+
 func dataPushEventView(event aqua.DataPushEvent) map[string]any {
 	payloadText := ""
 	if payloadIsTextual(event.ContentType) {
@@ -64,6 +81,25 @@ func dataPushEventView(event aqua.DataPushEvent) map[string]any {
 		"payload_text":    payloadText,
 		"payload_base64":  event.PayloadBase64,
 	}
+}
+
+func contactControlEventView(event aqua.ContactControlEvent) map[string]any {
+	view := map[string]any{
+		"event":            "agent.contact.push",
+		"from_peer_id":     event.FromPeerID,
+		"to_peer_id":       event.ToPeerID,
+		"action":           event.Action,
+		"request_id":       event.RequestID,
+		"verify_on_accept": event.VerifyOnAccept,
+		"received_at":      event.ReceivedAt,
+	}
+	if event.CreatedAt != nil {
+		view["created_at"] = event.CreatedAt.UTC()
+	}
+	if event.RespondedAt != nil {
+		view["responded_at"] = event.RespondedAt.UTC()
+	}
+	return view
 }
 
 func printRelayEvent(cmd *cobra.Command, event aqua.RelayEvent, outputJSON bool) {

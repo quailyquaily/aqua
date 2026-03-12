@@ -133,6 +133,17 @@ type DataPushEvent struct {
 	Deduped        bool      `json:"deduped"`
 }
 
+type ContactControlEvent struct {
+	FromPeerID     string               `json:"from_peer_id"`
+	ToPeerID       string               `json:"to_peer_id"`
+	Action         ContactControlAction `json:"action"`
+	RequestID      string               `json:"request_id"`
+	VerifyOnAccept bool                 `json:"verify_on_accept"`
+	CreatedAt      *time.Time           `json:"created_at,omitempty"`
+	RespondedAt    *time.Time           `json:"responded_at,omitempty"`
+	ReceivedAt     time.Time            `json:"received_at"`
+}
+
 type RelayEvent struct {
 	Event        string    `json:"event"`
 	Path         string    `json:"path,omitempty"`

@@ -33,59 +33,21 @@ func newCardExportCmd() *cobra.Command {
 		Short: "Export a signed contact card",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := serviceFromCmd(cmd)
-			baseAddresses, err := resolveCardExportAddressesForCommand(
+			resolvedAddresses, err := resolveContactCardAdvertiseAddressesForCommand(
 				cmd.Context(),
 				svc,
 				addresses,
 				listenAddrs,
+				relayAddrs,
+				advertiseMode,
 				cmd.InOrStdin(),
 				cmd.ErrOrStderr(),
 			)
-			if err != nil {
-				return err
-			}
-			directAddrs, relayFromBase := splitDirectAndRelayAddresses(baseAddresses)
-
-			relayFromFlag := []string{}
-			if len(normalizeAddressList(relayAddrs)) > 0 {
-				identity, ok, err := svc.GetIdentity(cmd.Context())
-				if err != nil {
-					return err
-				}
-				if !ok {
-					return fmt.Errorf("identity not found; run `aqua init`")
-				}
-				relayFromFlag, err = buildRelayAdvertiseAddresses(relayAddrs, identity.PeerID)
-				if err != nil {
-					return err
-				}
-			}
-
-			relayAdvertiseAddrs := normalizeAddressList(append(relayFromBase, relayFromFlag...))
-			mode := strings.ToLower(strings.TrimSpace(advertiseMode))
-			if mode == "" {
-				mode = "auto"
-			}
-			var resolvedAddresses []string
-			switch mode {
-			case "auto":
-				if len(directAddrs) == 0 {
-					resolvedAddresses = relayAdvertiseAddrs
-				} else if len(relayAdvertiseAddrs) == 0 {
-					resolvedAddresses = directAddrs
-				} else {
-					resolvedAddresses = normalizeAddressList(append(directAddrs, relayAdvertiseAddrs...))
-				}
-			case "direct":
-				resolvedAddresses = directAddrs
-			case "relay":
-				resolvedAddresses = relayAdvertiseAddrs
-			case "both":
-				resolvedAddresses = normalizeAddressList(append(directAddrs, relayAdvertiseAddrs...))
-			default:
-				return fmt.Errorf("invalid --advertise %q (supported: auto, direct, relay, both)", advertiseMode)
-			}
 			if len(resolvedAddresses) == 0 {
+				mode := strings.ToLower(strings.TrimSpace(advertiseMode))
+				if mode == "" {
+					mode = "auto"
+				}
 				return fmt.Errorf("no addresses available for advertise mode %q", mode)
 			}
 

@@ -131,7 +131,13 @@ func newServeCmd() *cobra.Command {
 						consoleServer.recordDataPush(event)
 					}
 					if webhookDispatcher != nil {
-						webhookDispatcher.enqueue(event)
+						webhookDispatcher.enqueueDataPush(event)
+					}
+				},
+				OnContactControl: func(event aqua.ContactControlEvent) {
+					printContactControlEvent(cmd, event, outputJSON)
+					if webhookDispatcher != nil {
+						webhookDispatcher.enqueueContactControl(event)
 					}
 				},
 				OnRelayEvent: func(event aqua.RelayEvent) {
@@ -216,7 +222,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&webConsole, "web-console", false, "Enable Web Console HTTP server")
 	cmd.Flags().StringVar(&webConsoleAddr, "web-console-addr", webConsoleListenDefault, "Web Console HTTP listen address")
 	cmd.Flags().StringVar(&consoleWebDstDir, "console-web-dst-dir", "", "Web Console built SPA directory")
-	cmd.Flags().StringVar(&webhookURL, "webhook", "", "POST each inbound agent.data.push event to this HTTP(S) webhook with exponential retry on failure")
+	cmd.Flags().StringVar(&webhookURL, "webhook", "", "POST each inbound serve event to this HTTP(S) webhook with exponential retry on failure")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	cmd.Flags().BoolVar(&dryRun, "dryrun", false, "Print derived addresses and exit without listening")
 	return cmd

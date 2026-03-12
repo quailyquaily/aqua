@@ -24,11 +24,12 @@ const (
 )
 
 type webhookQueueItem struct {
-	body           []byte
-	fromPeerID     string
-	topic          string
-	idempotencyKey string
-	receivedAt     time.Time
+	body       []byte
+	event      string
+	fromPeerID string
+	subject    string
+	key        string
+	receivedAt time.Time
 }
 
 type dataPushWebhookDispatcher struct {
@@ -92,7 +93,7 @@ func newDataPushWebhookDispatcher(parent context.Context, webhookURL string, log
 	return dispatcher, nil
 }
 
-func (d *dataPushWebhookDispatcher) enqueue(event aqua.DataPushEvent) {
+func (d *dataPushWebhookDispatcher) enqueueDataPush(event aqua.DataPushEvent) {
 	if d == nil {
 		return
 	}
@@ -107,11 +108,37 @@ func (d *dataPushWebhookDispatcher) enqueue(event aqua.DataPushEvent) {
 		return
 	}
 	d.queue = append(d.queue, webhookQueueItem{
-		body:           body,
-		fromPeerID:     event.FromPeerID,
-		topic:          event.Topic,
-		idempotencyKey: event.IdempotencyKey,
-		receivedAt:     event.ReceivedAt,
+		body:       body,
+		event:      "agent.data.push",
+		fromPeerID: event.FromPeerID,
+		subject:    event.Topic,
+		key:        event.IdempotencyKey,
+		receivedAt: event.ReceivedAt,
+	})
+	d.cond.Signal()
+}
+
+func (d *dataPushWebhookDispatcher) enqueueContactControl(event aqua.ContactControlEvent) {
+	if d == nil {
+		return
+	}
+	body, err := json.Marshal(contactControlEventView(event))
+	if err != nil {
+		d.logger.Warn("marshal webhook payload failed", "event", "agent.contact.push", "from_peer_id", event.FromPeerID, "err", err)
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return
+	}
+	d.queue = append(d.queue, webhookQueueItem{
+		body:       body,
+		event:      "agent.contact.push",
+		fromPeerID: event.FromPeerID,
+		subject:    string(event.Action),
+		key:        event.RequestID,
+		receivedAt: event.ReceivedAt,
 	})
 	d.cond.Signal()
 }
@@ -174,9 +201,10 @@ func (d *dataPushWebhookDispatcher) deliver(item webhookQueueItem) {
 				d.logger.Info(
 					"webhook delivery recovered",
 					"url", d.url,
-					"topic", item.topic,
+					"event", item.event,
 					"from_peer_id", item.fromPeerID,
-					"idempotency_key", item.idempotencyKey,
+					"subject", item.subject,
+					"key", item.key,
 					"attempts", attempt,
 				)
 			}
@@ -188,9 +216,10 @@ func (d *dataPushWebhookDispatcher) deliver(item webhookQueueItem) {
 		d.logger.Warn(
 			"webhook delivery failed; retrying",
 			"url", d.url,
-			"topic", item.topic,
+			"event", item.event,
 			"from_peer_id", item.fromPeerID,
-			"idempotency_key", item.idempotencyKey,
+			"subject", item.subject,
+			"key", item.key,
 			"received_at", item.receivedAt,
 			"attempt", attempt,
 			"backoff", backoff,

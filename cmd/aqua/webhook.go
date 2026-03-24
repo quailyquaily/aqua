@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ const (
 	webhookRetryInitialBackoff  = time.Second
 	webhookRetryMaximumBackoff  = 2 * time.Minute
 	webhookResponseBodyMaxBytes = 512
+	envWebhookBearerToken       = "AQUA_WEBHOOK_BEARER_TOKEN"
 )
 
 type webhookQueueItem struct {
@@ -34,6 +36,7 @@ type webhookQueueItem struct {
 
 type dataPushWebhookDispatcher struct {
 	url                 string
+	bearerToken         string
 	logger              *slog.Logger
 	client              *http.Client
 	retryInitialBackoff time.Duration
@@ -67,7 +70,14 @@ func resolveServeWebhookURL(raw string) (string, error) {
 	return parsed.String(), nil
 }
 
-func newDataPushWebhookDispatcher(parent context.Context, webhookURL string, logger *slog.Logger) (*dataPushWebhookDispatcher, error) {
+func resolveServeWebhookBearerToken(raw string) string {
+	if envValue := strings.TrimSpace(os.Getenv(envWebhookBearerToken)); envValue != "" {
+		return envValue
+	}
+	return strings.TrimSpace(raw)
+}
+
+func newDataPushWebhookDispatcher(parent context.Context, webhookURL string, bearerToken string, logger *slog.Logger) (*dataPushWebhookDispatcher, error) {
 	if strings.TrimSpace(webhookURL) == "" {
 		return nil, nil
 	}
@@ -77,6 +87,7 @@ func newDataPushWebhookDispatcher(parent context.Context, webhookURL string, log
 	ctx, cancel := context.WithCancel(parent)
 	dispatcher := &dataPushWebhookDispatcher{
 		url:                 webhookURL,
+		bearerToken:         strings.TrimSpace(bearerToken),
 		logger:              logger,
 		client:              &http.Client{Timeout: webhookDispatchTimeout},
 		retryInitialBackoff: webhookRetryInitialBackoff,
@@ -244,6 +255,9 @@ func (d *dataPushWebhookDispatcher) post(item webhookQueueItem) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "aqua-webhook/1")
+	if d.bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.bearerToken)
+	}
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return err

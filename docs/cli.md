@@ -417,6 +417,7 @@ aqua serve \
   [--relay <multiaddr> ...] \
   [--relay-mode auto|off|required] \
   [--webhook <http[s]://...>] \
+  [--webhook-bearer-token <token>] \
   [--dryrun] \
   [--json]
 ```
@@ -430,6 +431,7 @@ Flags:
 - `--relay` (repeatable): relay endpoints to reserve.
 - `--relay-mode`: `auto|off|required` (default `auto`).
 - `--webhook`: POST every inbound `serve --json` event to the given HTTP(S) webhook.
+- `--webhook-bearer-token`: bearer token used as `Authorization: Bearer <token>` for webhook requests. Prefer `AQUA_WEBHOOK_BEARER_TOKEN`.
 - `--dryrun`: print derived advertise addresses and exit without starting listeners.
 - `--json`: print ready/event output as JSON.
 
@@ -438,6 +440,7 @@ Behavior notes:
 - For wildcard listen addresses (`0.0.0.0` or `::`), Aqua auto-expands printed addresses with detected local interface IPs (for example Tailscale).
 - With configured `--relay`, Aqua attempts Circuit Relay v2 reservation at startup.
 - `--webhook` sends the same JSON event view as `serve --json` for each inbound event.
+- `AQUA_WEBHOOK_BEARER_TOKEN`, when set, overrides `--webhook-bearer-token`.
 - This includes inbound `agent.data.push` messages and inbound `agent.contact.push` contact invite/accept/reject control events.
 - Webhook delivery treats non-2xx responses and transport errors as failures, then retries with exponentially increasing delay until success or process exit.
 - `--json` includes relay events like `relay.reservation.ok`, `relay.path.selected`, and `relay.fallback`.

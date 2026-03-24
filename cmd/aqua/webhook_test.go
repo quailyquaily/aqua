@@ -50,15 +50,45 @@ func TestResolveServeWebhookURL(t *testing.T) {
 	}
 }
 
+func TestResolveServeWebhookBearerToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		flagValue string
+		envValue  string
+		want      string
+	}{
+		{name: "empty", want: ""},
+		{name: "flag only", flagValue: "flag-token", want: "flag-token"},
+		{name: "env only", envValue: "env-token", want: "env-token"},
+		{name: "env overrides flag", flagValue: "flag-token", envValue: "env-token", want: "env-token"},
+		{name: "trim whitespace", flagValue: "  flag-token  ", want: "flag-token"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envWebhookBearerToken, tt.envValue)
+			got := resolveServeWebhookBearerToken(tt.flagValue)
+			if got != tt.want {
+				t.Fatalf("resolveServeWebhookBearerToken() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDataPushWebhookDispatcherRetriesUntilSuccess(t *testing.T) {
 	var attempts atomic.Int32
 	delivered := make(chan map[string]any, 1)
+	const bearerToken = "test-bearer-token"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s, want POST", r.Method)
 		}
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Fatalf("Content-Type = %q, want application/json", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+bearerToken {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer "+bearerToken)
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -82,7 +112,7 @@ func TestDataPushWebhookDispatcherRetriesUntilSuccess(t *testing.T) {
 	defer server.Close()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	dispatcher, err := newDataPushWebhookDispatcher(context.Background(), server.URL, logger)
+	dispatcher, err := newDataPushWebhookDispatcher(context.Background(), server.URL, bearerToken, logger)
 	if err != nil {
 		t.Fatalf("newDataPushWebhookDispatcher() error = %v", err)
 	}
@@ -147,7 +177,7 @@ func TestDataPushWebhookDispatcherDeliversContactControlEvent(t *testing.T) {
 	defer server.Close()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	dispatcher, err := newDataPushWebhookDispatcher(context.Background(), server.URL, logger)
+	dispatcher, err := newDataPushWebhookDispatcher(context.Background(), server.URL, "", logger)
 	if err != nil {
 		t.Fatalf("newDataPushWebhookDispatcher() error = %v", err)
 	}

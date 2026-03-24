@@ -226,6 +226,31 @@ func TestInboxWatchOnceMarksRead(t *testing.T) {
 	}
 }
 
+func TestServeDryRunDoesNotExposeWebhookBearerToken(t *testing.T) {
+	dir := t.TempDir()
+	const token = "secret-webhook-token"
+	t.Setenv(envWebhookBearerToken, token)
+
+	stdout, stderr, err := executeCLI(
+		t,
+		"--dir", dir,
+		"--log-level", "debug",
+		"serve",
+		"--webhook", "https://example.com/hooks/aqua",
+		"--dryrun",
+		"--json",
+	)
+	if err != nil {
+		t.Fatalf("serve --dryrun --json error = %v, stderr=%s", err, stderr)
+	}
+	if strings.Contains(stdout, token) {
+		t.Fatalf("stdout should not expose webhook bearer token: %s", stdout)
+	}
+	if strings.Contains(stderr, token) {
+		t.Fatalf("stderr should not expose webhook bearer token: %s", stderr)
+	}
+}
+
 func TestInboxWatchOnceBatchesUnreadMessages(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

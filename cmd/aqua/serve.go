@@ -28,6 +28,7 @@ func newServeCmd() *cobra.Command {
 	var webConsoleAddr string
 	var consoleWebDstDir string
 	var webhookURL string
+	var webhookBearerToken string
 	var outputJSON bool
 	var dryRun bool
 	cmd := &cobra.Command{
@@ -54,6 +55,7 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resolvedWebhookBearerToken := resolveServeWebhookBearerToken(webhookBearerToken)
 			relayProbeEnabled, err := resolveRelayProbeEnabledFromEnv()
 			if err != nil {
 				return err
@@ -113,7 +115,7 @@ func newServeCmd() *cobra.Command {
 			}
 
 			var consoleServer *webConsoleServer
-			webhookDispatcher, err := newDataPushWebhookDispatcher(runCtx, resolvedWebhookURL, logger)
+			webhookDispatcher, err := newDataPushWebhookDispatcher(runCtx, resolvedWebhookURL, resolvedWebhookBearerToken, logger)
 			if err != nil {
 				return err
 			}
@@ -223,6 +225,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&webConsoleAddr, "web-console-addr", webConsoleListenDefault, "Web Console HTTP listen address")
 	cmd.Flags().StringVar(&consoleWebDstDir, "console-web-dst-dir", "", "Web Console built SPA directory")
 	cmd.Flags().StringVar(&webhookURL, "webhook", "", "POST each inbound serve event to this HTTP(S) webhook with exponential retry on failure")
+	cmd.Flags().StringVar(&webhookBearerToken, "webhook-bearer-token", "", "Bearer token for webhook Authorization header (prefer AQUA_WEBHOOK_BEARER_TOKEN)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Print status/events as JSON")
 	cmd.Flags().BoolVar(&dryRun, "dryrun", false, "Print derived addresses and exit without listening")
 	return cmd

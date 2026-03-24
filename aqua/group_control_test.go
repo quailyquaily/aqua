@@ -119,7 +119,7 @@ func TestNodeGroupInviteAcceptFlow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	now := time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Add(-time.Minute)
 
 	managerSvc := NewService(NewFileStore(t.TempDir()))
 	managerIdentity, _, err := managerSvc.EnsureIdentity(ctx, now)

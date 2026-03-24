@@ -175,16 +175,18 @@ func TestGroupCLI_InviteAcceptByGroupIDJSON(t *testing.T) {
 		t.Fatalf("expected local identity to exist after init")
 	}
 
+	now := time.Now().UTC().Add(-time.Minute)
+
 	remoteSvc := aqua.NewService(aqua.NewFileStore(t.TempDir()))
-	remoteIdentity, _, err := remoteSvc.EnsureIdentity(ctx, time.Date(2026, 3, 10, 14, 0, 0, 0, time.UTC))
+	remoteIdentity, _, err := remoteSvc.EnsureIdentity(ctx, now)
 	if err != nil {
 		t.Fatalf("EnsureIdentity(remote) error = %v", err)
 	}
-	group, err := remoteSvc.CreateGroup(ctx, time.Date(2026, 3, 10, 14, 1, 0, 0, time.UTC))
+	group, err := remoteSvc.CreateGroup(ctx, now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("CreateGroup(remote) error = %v", err)
 	}
-	invite, err := remoteSvc.InviteGroupMember(ctx, group.GroupID, localIdentity.PeerID, time.Date(2026, 3, 10, 14, 2, 0, 0, time.UTC))
+	invite, err := remoteSvc.InviteGroupMember(ctx, group.GroupID, localIdentity.PeerID, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatalf("InviteGroupMember(remote) error = %v", err)
 	}
@@ -192,7 +194,7 @@ func TestGroupCLI_InviteAcceptByGroupIDJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeGroupInviteControlMessage() error = %v", err)
 	}
-	if err := localSvc.ApplyInboundGroupControl(ctx, remoteIdentity.PeerID, payloadRaw, time.Date(2026, 3, 10, 14, 3, 0, 0, time.UTC)); err != nil {
+	if err := localSvc.ApplyInboundGroupControl(ctx, remoteIdentity.PeerID, payloadRaw, now.Add(3*time.Second)); err != nil {
 		t.Fatalf("ApplyInboundGroupControl(local) error = %v", err)
 	}
 
